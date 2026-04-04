@@ -4,16 +4,11 @@ export default function ChooseMyRateVoiceUI() {
   const [selectedRate, setSelectedRate] = useState('6.000%');
   const [voiceEnabled, setVoiceEnabled] = useState(true);
   const [chatInput, setChatInput] = useState('');
-const [selectedRate, setSelectedRate] = useState('6.000%');
-const [voiceEnabled, setVoiceEnabled] = useState(true);
-const [chatInput, setChatInput] = useState('');
 
-// 👉 AQUÍ MISMO 👇 (línea 7 está bien)
-const [currentPrompt, setCurrentPrompt] = useState(
-  "Hi, I'm Sally. I'll guide you step by step like a real loan officer would. You can reply in English or Español. Which language would you prefer?"
-);
+  const [currentPrompt, setCurrentPrompt] = useState(
+    "Hi, I'm Sally. I'll guide you step by step like a real loan officer would. You can reply in English or Español. Which language would you prefer?"
+  );
 
-const [scenario, setScenario] = useState({
   const [scenario, setScenario] = useState({
     language: '',
     loanType: '',
@@ -29,25 +24,48 @@ const [scenario, setScenario] = useState({
     occupancy: '',
   });
 
-const [currentPrompt, setCurrentPrompt] = useState(
-  "Hi, I'm Sally. I'll guide you step by step like a real loan officer would. You can reply in English or Español. Which language would you prefer?"
-);
-
   const [flow, setFlow] = useState({
     step: 'language',
     pendingPurchasePrice: null,
     pendingDownPaymentPercent: null,
-    waitingForPriceConfirmation: false,
-    waitingForDownPaymentConfirmation: false,
-    waitingForLoanSummaryConfirmation: false,
   });
 
+  const speakText = (text) => {
+    if (!voiceEnabled || !('speechSynthesis' in window)) return;
 
-const addSallyMessage = (text) => {
-  setCurrentPrompt(text);
-  setTimeout(() => speakText(text), 100);
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.rate = 1;
+    utterance.pitch = 1;
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(utterance);
+  };
+
+  const addSallyMessage = (text) => {
+    setCurrentPrompt(text);
+    setTimeout(() => speakText(text), 100);
+  };
+
+  const speakLatest = () => {
+    speakText(currentPrompt);
+  };
+const updateScenarioField = (field, value) => {
+  setScenario((prev) => {
+    const updated = { ...prev, [field]: value };
+
+    const purchasePrice = Number(updated.purchasePrice) || 0;
+    const downPaymentPercent = Number(updated.downPaymentPercent) || 0;
+
+    if (purchasePrice > 0 && downPaymentPercent >= 0) {
+      const downPaymentAmount = Math.round((purchasePrice * downPaymentPercent) / 100);
+      const loanAmount = Math.round(purchasePrice - downPaymentAmount);
+
+      updated.downPaymentAmount = downPaymentAmount;
+      updated.loanAmount = loanAmount;
+    }
+
+    return updated;
+  });
 };
-
   const formatMoney = (value) => {
     if (value === '' || value === null || value === undefined) return '—';
     return `$${Number(value).toLocaleString()}`;
@@ -59,10 +77,10 @@ const addSallyMessage = (text) => {
     return Number(cleaned);
   };
 
-  const parseZip = (value) => {
-    const match = String(value).match(/\b\d{5}\b/);
-    return match ? match[0] : '';
-  };
+const parseZip = (value) => {
+  const match = String(value).match(/\b\d{5}\b/);
+  return match ? match[0] : '';
+};
 
   const normalizeLanguage = (value) => {
     const lower = value.toLowerCase();
@@ -73,8 +91,7 @@ const addSallyMessage = (text) => {
   const normalizeLoanType = (value) => {
     const lower = value.toLowerCase();
     if (lower.includes('fha')) return 'FHA';
-    if (lower.includes('conv')) return 'Conventional';
-    if (lower.includes('conventional')) return 'Conventional';
+    if (lower.includes('conventional') || lower.includes('conv')) return 'Conventional';
     if (lower.includes('va')) return 'VA';
     return '';
   };
@@ -95,15 +112,15 @@ const addSallyMessage = (text) => {
   };
 
   const isYes = (value) => {
-    const lower = value.toLowerCase().trim();
-    return ['yes', 'y', 'sí', 'si', 'correct', 'correcto', 'okay', 'ok', 'sounds good', 'that works'].some((x) =>
+    const lower = value.toLowerCase();
+    return ['yes', 'y', 'sí', 'si', 'correct', 'correcto', 'ok', 'okay', 'sounds good', 'that works'].some((x) =>
       lower.includes(x)
     );
   };
 
   const isNo = (value) => {
-    const lower = value.toLowerCase().trim();
-    return ['no', 'not really', 'nope'].some((x) => lower.includes(x));
+    const lower = value.toLowerCase();
+    return ['no', 'nope', 'not really'].some((x) => lower.includes(x));
   };
 
   const soundsUncertain = (value) => {
@@ -112,11 +129,8 @@ const addSallyMessage = (text) => {
       lower.includes("don't know") ||
       lower.includes('not sure') ||
       lower.includes('no clue') ||
-      lower.includes('not too') ||
-      lower.includes('más o menos') ||
       lower.includes('no sé') ||
       lower.includes('no se') ||
-      lower.includes('whatever the minimum') ||
       lower.includes('minimum down') ||
       lower.includes('mínimo') ||
       lower.includes('minimo')
@@ -129,6 +143,7 @@ const addSallyMessage = (text) => {
     const a = Number(nums[0].replace(/,/g, ''));
     const b = Number(nums[1].replace(/,/g, ''));
     if (!a || !b) return null;
+
     return {
       low: Math.min(a, b),
       high: Math.max(a, b),
@@ -321,16 +336,12 @@ const addSallyMessage = (text) => {
     return rates.find((r) => r.rate === selectedRate) || rates[4];
   }, [selectedRate, rates]);
 
-  const speakLatest = () => {
-    const lastSallyMessage = [...messages].reverse().find((m) => m.role === 'sally');
-    if (lastSallyMessage) speakText(lastSallyMessage.text);
-  };
+
 
   const handleSend = () => {
     const answer = chatInput.trim();
     if (!answer) return;
 
-   
     setChatInput('');
 
     if (flow.step === 'language') {
@@ -416,7 +427,6 @@ const addSallyMessage = (text) => {
         setFlow((prev) => ({
           ...prev,
           pendingPurchasePrice: price,
-          waitingForPriceConfirmation: true,
           step: 'priceConfirmation',
         }));
 
@@ -441,12 +451,7 @@ const addSallyMessage = (text) => {
       }
 
       if (soundsUncertain(answer)) {
-        setFlow((prev) => ({
-          ...prev,
-          pendingPurchasePrice: '',
-          waitingForPriceConfirmation: false,
-          step: 'priceGuidance',
-        }));
+        setFlow((prev) => ({ ...prev, step: 'priceGuidance' }));
 
         addSallyMessage(
           scenario.language === 'es'
@@ -473,7 +478,6 @@ const addSallyMessage = (text) => {
         setFlow((prev) => ({
           ...prev,
           pendingPurchasePrice: price,
-          waitingForPriceConfirmation: true,
           step: 'priceConfirmation',
         }));
 
@@ -511,7 +515,6 @@ const addSallyMessage = (text) => {
         setFlow((prev) => ({
           ...prev,
           pendingPurchasePrice: null,
-          waitingForPriceConfirmation: false,
           step: 'downPaymentDiscovery',
         }));
 
@@ -527,7 +530,6 @@ const addSallyMessage = (text) => {
         setFlow((prev) => ({
           ...prev,
           pendingPurchasePrice: null,
-          waitingForPriceConfirmation: false,
           step: 'priceGuidance',
         }));
 
@@ -567,7 +569,6 @@ const addSallyMessage = (text) => {
         setFlow((prev) => ({
           ...prev,
           pendingDownPaymentPercent: defaultPercent,
-          waitingForDownPaymentConfirmation: true,
           step: 'downPaymentConfirmation',
         }));
 
@@ -592,7 +593,6 @@ const addSallyMessage = (text) => {
           setFlow((prev) => ({
             ...prev,
             pendingDownPaymentPercent: percent,
-            waitingForDownPaymentConfirmation: true,
             step: 'downPaymentConfirmation',
           }));
 
@@ -619,7 +619,6 @@ const addSallyMessage = (text) => {
           setFlow((prev) => ({
             ...prev,
             pendingDownPaymentPercent: percent,
-            waitingForDownPaymentConfirmation: true,
             step: 'downPaymentConfirmation',
           }));
 
@@ -642,7 +641,6 @@ const addSallyMessage = (text) => {
         setFlow((prev) => ({
           ...prev,
           pendingDownPaymentPercent: percent,
-          waitingForDownPaymentConfirmation: true,
           step: 'downPaymentConfirmation',
         }));
 
@@ -682,7 +680,6 @@ const addSallyMessage = (text) => {
         setFlow((prev) => ({
           ...prev,
           pendingDownPaymentPercent: null,
-          waitingForDownPaymentConfirmation: false,
           step: 'creditScore',
         }));
 
@@ -698,7 +695,6 @@ const addSallyMessage = (text) => {
         setFlow((prev) => ({
           ...prev,
           pendingDownPaymentPercent: null,
-          waitingForDownPaymentConfirmation: false,
           step: 'downPaymentDiscovery',
         }));
 
@@ -759,7 +755,6 @@ const addSallyMessage = (text) => {
           ? `Perfecto. Ya tengo un escenario de trabajo armado para ti. ${pricingExplanation}`
           : `Perfect. I now have a working scenario built for you. ${pricingExplanation}`
       );
-      return;
     }
   };
 
@@ -860,69 +855,60 @@ const addSallyMessage = (text) => {
             </div>
           </div>
 
-          <div style={{ display: 'grid', gap: 12 }}>
-            {messages.map((message, index) => (
-              <div
-                key={index}
-                style={{
-                  display: 'flex',
-                  justifyContent: message.role === 'user' ? 'flex-end' : 'flex-start',
-                }}
-              >
-                <div
-                  style={{
-                    maxWidth: '75%',
-                    background:
-                      message.role === 'user'
-                        ? 'rgba(239,68,68,0.15)'
-                        : 'rgba(255,255,255,0.06)',
-                    color: 'white',
-                    borderRadius: 18,
-                    padding: '13px 16px',
-                    lineHeight: 1.45,
-                    border: '1px solid rgba(255,255,255,0.08)',
-                    fontSize: 16,
-                  }}
-                >
-                  <strong>{message.role === 'user' ? 'You' : 'Sally'}:</strong> {message.text}
-                </div>
-              </div>
-            ))}
-
-            <div style={{ display: 'flex', gap: 12, marginTop: 6 }}>
-              <input
-                value={chatInput}
-                onChange={(e) => setChatInput(e.target.value)}
-                placeholder={flow.step === 'complete' ? 'Scenario complete' : 'Reply here to Sally...'}
-                style={{
-                  flex: 1,
-                  background: 'rgba(255,255,255,0.05)',
-                  borderRadius: 16,
-                  padding: '16px 18px',
-                  color: '#ffffff',
-                  border: '1px solid rgba(255,255,255,0.08)',
-                  fontSize: 16,
-                  outline: 'none',
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleSend();
-                }}
-              />
-              <button
-                onClick={handleSend}
-                style={{
-                  minWidth: 130,
-                  background: '#ffffff',
-                  color: '#0b2340',
-                  borderRadius: 16,
-                  border: 'none',
-                  fontWeight: 800,
-                  cursor: 'pointer',
-                }}
-              >
-                Send
-              </button>
+          <div
+            style={{
+              background: 'rgba(255,255,255,0.06)',
+              color: 'white',
+              borderRadius: 18,
+              padding: '18px 20px',
+              lineHeight: 1.5,
+              border: '1px solid rgba(255,255,255,0.08)',
+              fontSize: 18,
+              minHeight: 90,
+              display: 'flex',
+              alignItems: 'center',
+              marginBottom: 12,
+            }}
+          >
+            <div>
+              <div style={{ fontWeight: 700, marginBottom: 6 }}>Sally</div>
+              <div>{currentPrompt}</div>
             </div>
+          </div>
+
+          <div style={{ display: 'flex', gap: 12, marginTop: 6 }}>
+            <input
+              value={chatInput}
+              onChange={(e) => setChatInput(e.target.value)}
+              placeholder={flow.step === 'complete' ? 'Scenario complete' : 'Reply here to Sally...'}
+              style={{
+                flex: 1,
+                background: 'rgba(255,255,255,0.05)',
+                borderRadius: 16,
+                padding: '16px 18px',
+                color: '#ffffff',
+                border: '1px solid rgba(255,255,255,0.08)',
+                fontSize: 16,
+                outline: 'none',
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleSend();
+              }}
+            />
+            <button
+              onClick={handleSend}
+              style={{
+                minWidth: 130,
+                background: '#ffffff',
+                color: '#0b2340',
+                borderRadius: 16,
+                border: 'none',
+                fontWeight: 800,
+                cursor: 'pointer',
+              }}
+            >
+              Send
+            </button>
           </div>
         </div>
 
@@ -937,20 +923,91 @@ const addSallyMessage = (text) => {
             }}
           >
             <div style={{ fontSize: 30, fontWeight: 700, marginBottom: 18 }}>Loan Scenario</div>
-            <div style={{ display: 'grid', gap: 14 }}>
-              <ScenarioField label="Language" value={scenario.language === 'es' ? 'Español' : scenario.language ? 'English' : '—'} />
-              <ScenarioField label="Loan Type" value={scenario.loanType || '—'} />
-              <ScenarioField label="Loan Term" value={scenario.term || '—'} />
-              <ScenarioField label="Loan Purpose" value={scenario.purpose || '—'} />
-              <ScenarioField label="Area / Zip" value={scenario.area || scenario.zipCode || '—'} />
-              <ScenarioField label="Purchase Price" value={scenario.purchasePrice ? formatMoney(scenario.purchasePrice) : '—'} />
-              <ScenarioField label="Down Payment %" value={scenario.downPaymentPercent ? `${scenario.downPaymentPercent}%` : '—'} />
-              <ScenarioField label="Down Payment $" value={scenario.downPaymentAmount ? formatMoney(scenario.downPaymentAmount) : '—'} />
-              <ScenarioField label="Loan Amount" value={scenario.loanAmount ? formatMoney(scenario.loanAmount) : '—'} />
-              <ScenarioField label="Credit Score" value={scenario.creditScore || '—'} />
-              <ScenarioField label="Zip Code" value={scenario.zipCode || '—'} />
-              <ScenarioField label="Occupancy" value={scenario.occupancy || '—'} />
-            </div>
+<div style={{ display: 'grid', gap: 14 }}>
+  <EditableSelect
+    label="Language"
+    value={scenario.language}
+    options={[
+      { label: 'English', value: 'en' },
+      { label: 'Español', value: 'es' },
+    ]}
+    onChange={(value) => updateScenarioField('language', value)}
+  />
+
+  <EditableSelect
+    label="Loan Type"
+    value={scenario.loanType}
+    options={[
+      { label: 'FHA', value: 'FHA' },
+      { label: 'Conventional', value: 'Conventional' },
+      { label: 'VA', value: 'VA' },
+    ]}
+    onChange={(value) => updateScenarioField('loanType', value)}
+  />
+
+  <ScenarioField label="Loan Term" value={scenario.term || '30-Year Fixed'} />
+
+  <EditableSelect
+    label="Loan Purpose"
+    value={scenario.purpose}
+    options={[
+      { label: 'Purchase', value: 'Purchase' },
+      { label: 'Refinance', value: 'Refinance' },
+    ]}
+    onChange={(value) => updateScenarioField('purpose', value)}
+  />
+
+  <EditableInput
+    label="Area / Zip"
+    value={scenario.area}
+    onChange={(value) => updateScenarioField('area', value)}
+  />
+
+  <EditableInput
+    label="Purchase Price"
+    value={scenario.purchasePrice}
+    onChange={(value) => updateScenarioField('purchasePrice', value.replace(/[^0-9]/g, ''))}
+  />
+
+  <EditableInput
+    label="Down Payment %"
+    value={scenario.downPaymentPercent}
+    onChange={(value) => updateScenarioField('downPaymentPercent', value.replace(/[^0-9.]/g, ''))}
+  />
+
+  <ScenarioField
+    label="Down Payment $"
+    value={scenario.downPaymentAmount ? formatMoney(scenario.downPaymentAmount) : '—'}
+  />
+
+  <ScenarioField
+    label="Loan Amount"
+    value={scenario.loanAmount ? formatMoney(scenario.loanAmount) : '—'}
+  />
+
+  <EditableInput
+    label="Credit Score"
+    value={scenario.creditScore}
+    onChange={(value) => updateScenarioField('creditScore', value.replace(/[^0-9]/g, ''))}
+  />
+
+  <EditableInput
+    label="Zip Code"
+    value={scenario.zipCode}
+    onChange={(value) => updateScenarioField('zipCode', value.replace(/[^0-9]/g, '').slice(0, 5))}
+  />
+
+  <EditableSelect
+    label="Occupancy"
+    value={scenario.occupancy}
+    options={[
+      { label: 'Primary Residence', value: 'Primary Residence' },
+      { label: 'Second Home', value: 'Second Home' },
+      { label: 'Investment Property', value: 'Investment Property' },
+    ]}
+    onChange={(value) => updateScenarioField('occupancy', value)}
+  />
+</div>
           </div>
 
           <div
@@ -1015,6 +1072,77 @@ function ScenarioField({ label, value }) {
     </div>
   );
 }
+function EditableInput({ label, value, onChange }) {
+  return (
+    <div
+      style={{
+        background: 'rgba(255,255,255,0.05)',
+        border: '1px solid rgba(255,255,255,0.08)',
+        borderRadius: 16,
+        padding: '14px 16px',
+      }}
+    >
+      <div style={{ fontSize: 12, color: '#a9b6cc', textTransform: 'uppercase', letterSpacing: 0.8 }}>
+        {label}
+      </div>
+      <input
+        value={value ?? ''}
+        onChange={(e) => onChange(e.target.value)}
+        style={{
+          marginTop: 8,
+          width: '100%',
+          background: 'transparent',
+          border: 'none',
+          outline: 'none',
+          color: 'white',
+          fontSize: 20,
+          fontWeight: 600,
+        }}
+      />
+    </div>
+  );
+}
+
+function EditableSelect({ label, value, options, onChange }) {
+  return (
+    <div
+      style={{
+        background: 'rgba(255,255,255,0.05)',
+        border: '1px solid rgba(255,255,255,0.08)',
+        borderRadius: 16,
+        padding: '14px 16px',
+      }}
+    >
+      <div style={{ fontSize: 12, color: '#a9b6cc', textTransform: 'uppercase', letterSpacing: 0.8 }}>
+        {label}
+      </div>
+      <select
+        value={value || ''}
+        onChange={(e) => onChange(e.target.value)}
+        style={{
+          marginTop: 8,
+          width: '100%',
+          background: 'transparent',
+          border: 'none',
+          outline: 'none',
+          color: 'white',
+          fontSize: 20,
+          fontWeight: 600,
+        }}
+      >
+        <option value="" style={{ color: 'black' }}>
+          Select
+        </option>
+        {options.map((option) => (
+          <option key={option.value} value={option.value} style={{ color: 'black' }}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
 
 function RateRow({ rate, type, pct, dollars, payment, highlight = false, onClick }) {
   const typeColor = type === 'Credit' ? '#86efac' : type === 'Cost' ? '#f87171' : '#ffffff';

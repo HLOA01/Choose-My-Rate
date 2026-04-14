@@ -52,15 +52,15 @@ function getScenarioFields(scenario) {
       ],
     },
     {
-      key: "loanProgram",
+      key: "loanType",
       label: "Loan Type",
       type: "select",
       options: [
-        { value: "conventional", label: "Conventional" },
-        { value: "fha", label: "FHA" },
-        { value: "va", label: "VA" },
-        { value: "usda", label: "USDA" },
-        { value: "jumbo", label: "Jumbo" },
+        { value: "Conventional", label: "Conventional" },
+        { value: "FHA", label: "FHA" },
+        { value: "VA", label: "VA" },
+        { value: "USDA", label: "USDA" },
+        { value: "Jumbo", label: "Jumbo" },
       ],
     },
     {
@@ -79,8 +79,8 @@ function getScenarioFields(scenario) {
     return [
       common[0],
       {
-        key: "appraisalValue",
-        label: "Appraisal Value",
+        key: "purchasePrice",
+        label: "Estimated Value",
         type: "currency",
       },
       common[2],
@@ -109,7 +109,7 @@ function getScenarioFields(scenario) {
 
 function getBaseRate(scenario) {
   const purpose = scenario.loanPurpose || "purchase";
-  const program = scenario.loanProgram || "conventional";
+const program = String(scenario.loanType || "Conventional").toLowerCase();
   const occupancy = scenario.occupancy || "primary";
   const creditScore = toNumber(scenario.creditScore);
 
@@ -146,7 +146,7 @@ function calculatePricing(scenario, manualRate = null) {
     };
   }
 
-  const program = scenario.loanProgram || "conventional";
+const program = String(scenario.loanType || "Conventional").toLowerCase();
 
   const monthlyRate = liveRate / 100 / 12;
   const months = 360;
@@ -156,11 +156,11 @@ function calculatePricing(scenario, manualRate = null) {
       ? loanAmount / months
       : (loanAmount * monthlyRate) / (1 - Math.pow(1 + monthlyRate, -months));
 
-  const valueBase = toNumber(scenario.purchasePrice) || toNumber(scenario.appraisalValue);
-  const taxes = valueBase ? (valueBase * 0.012) / 12 : 0;
+const valueBase = toNumber(scenario.purchasePrice);
+      const taxes = valueBase ? (valueBase * 0.012) / 12 : 0;
   const insurance = valueBase ? (valueBase * 0.0045) / 12 : 0;
 
-  const ltvBase = toNumber(scenario.appraisalValue) || toNumber(scenario.purchasePrice);
+  const ltvBase = toNumber(scenario.purchasePrice);
   const ltv = ltvBase ? (loanAmount / ltvBase) * 100 : 0;
 
   let mortgageInsurance = 0;
@@ -224,13 +224,12 @@ function ScenarioControl({ field, value, onChange }) {
 }
 
 export default function App() {
-  const [scenario, setScenario] = useState(() => ({
-    ...createEmptyScenario(),
-    loanProgram: "conventional",
-    loanPurpose: "purchase",
-    appraisalValue: "",
-    occupancy: "primary",
-  }));
+const [scenario, setScenario] = useState(() => ({
+  ...createEmptyScenario(),
+  loanType: "Conventional",
+  loanPurpose: "purchase",
+  occupancy: "primary",
+}));
 
   const [prompt, setPrompt] = useState(INITIAL_PROMPT);
   const [lastAnswer, setLastAnswer] = useState("");
@@ -339,19 +338,18 @@ export default function App() {
   };
 
   const normalizeScenarioAfterBrain = (next) => {
-    const scenarioCopy = { ...next };
+  const scenarioCopy = { ...next };
 
-    if (!scenarioCopy.loanProgram) scenarioCopy.loanProgram = "conventional";
-    if (!scenarioCopy.loanPurpose) scenarioCopy.loanPurpose = "purchase";
+  if (!scenarioCopy.loanType) scenarioCopy.loanType = "Conventional";
+  if (!scenarioCopy.loanPurpose) scenarioCopy.loanPurpose = "purchase";
 
-    if (scenarioCopy.loanPurpose !== "purchase") {
-      scenarioCopy.purchasePrice = "";
-      scenarioCopy.downPayment = "";
-      scenarioCopy.downPaymentPercent = "";
-    }
+  if (scenarioCopy.loanPurpose !== "purchase") {
+    scenarioCopy.downPayment = "";
+    scenarioCopy.downPaymentPercent = "";
+  }
 
-    return scenarioCopy;
-  };
+  return scenarioCopy;
+};
 
   const sendMessage = (rawInput = input) => {
     const userText = String(rawInput || "").trim();
@@ -391,10 +389,9 @@ export default function App() {
       };
 
       if (field === "loanPurpose" && value !== "purchase") {
-        next.purchasePrice = "";
-        next.downPayment = "";
-        next.downPaymentPercent = "";
-      }
+  next.downPayment = "";
+  next.downPaymentPercent = "";
+}
 
       if (field === "purchasePrice" || field === "downPayment") {
         const purchasePrice = toNumber(field === "purchasePrice" ? value : next.purchasePrice);

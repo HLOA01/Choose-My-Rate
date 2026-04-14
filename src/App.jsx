@@ -6,6 +6,8 @@ import { askSallyApi, hasSallyApi } from "./sallyApi";
 const INITIAL_PROMPT =
   "Hi, I’m Sally. I can help you build your loan scenario and guide you step by step. Are you looking to buy a home, refinance, or take cash out?";
 
+const CHAT_MODE_STORAGE_KEY = "choose-my-rate-sally-chat-mode";
+
 function formatCurrency(value) {
   if (value === "" || value === null || value === undefined) return "—";
   const numeric = Number(value);
@@ -240,6 +242,10 @@ const [scenario, setScenario] = useState(() => ({
   const [isThinking, setIsThinking] = useState(false);
   const [voiceEnabled, setVoiceEnabled] = useState(true);
   const [speechSupported, setSpeechSupported] = useState(false);
+  const [chatMode, setChatMode] = useState(() => {
+    const savedMode = window.localStorage?.getItem(CHAT_MODE_STORAGE_KEY);
+    return savedMode === "rules" ? "rules" : "ai";
+  });
 
   const recognitionRef = useRef(null);
 
@@ -266,6 +272,10 @@ const [scenario, setScenario] = useState(() => ({
   useEffect(() => {
     setSelectedRate(baseRate);
   }, [baseRate]);
+
+  useEffect(() => {
+    window.localStorage?.setItem(CHAT_MODE_STORAGE_KEY, chatMode);
+  }, [chatMode]);
 
   const pricing = useMemo(
     () => calculatePricing(enrichedScenario, selectedRate),
@@ -365,7 +375,7 @@ const [scenario, setScenario] = useState(() => ({
 
     let result = localResult;
 
-    if (hasSallyApi()) {
+    if (chatMode === "ai" && hasSallyApi()) {
       try {
         result = await askSallyApi({
           message: userText,
@@ -374,6 +384,10 @@ const [scenario, setScenario] = useState(() => ({
         });
       } catch (error) {
         console.warn("Sally API fallback:", error);
+        result = {
+          ...localResult,
+          message: `${localResult.message} I am using the rule-based guide until the AI connection is ready.`,
+        };
       }
     }
 
@@ -456,6 +470,15 @@ const [scenario, setScenario] = useState(() => ({
               </div>
 
               <div className="sally-inline-controls">
+                <button
+                  type="button"
+                  className={`mode-toggle ${chatMode === "ai" ? "active-control" : ""}`}
+                  onClick={() => setChatMode((prev) => (prev === "ai" ? "rules" : "ai"))}
+                  title="Switch Sally mode"
+                >
+                  {chatMode === "ai" ? "AI" : "Rules"}
+                </button>
+
                 <button
                   type="button"
                   className="icon-control"

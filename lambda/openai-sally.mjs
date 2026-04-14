@@ -1,5 +1,29 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
+const __dirname = dirname(fileURLToPath(import.meta.url));
+
+const promptFiles = [
+  ["Sally Knowledge Base", "Sally_Knowledge_Base.md"],
+  ["Sally OpenAI Integration Notes", "Sally_OpenAI_Integration_Notes.md"],
+  ["Sally Guardrails and Compliance", "Sally_Guardrails_and_Compliance.md"],
+  ["Sally Response Examples", "Sally_Response_Examples.md"],
+];
+
+function loadPromptFile([title, fileName]) {
+  try {
+    const content = readFileSync(join(__dirname, "prompts", fileName), "utf8");
+    return `# ${title}\n\n${content}`;
+  } catch (error) {
+    console.warn(`Unable to load ${fileName}:`, error);
+    return `# ${title}\n\nUnavailable.`;
+  }
+}
+
+const sallyPromptContext = promptFiles.map(loadPromptFile).join("\n\n---\n\n");
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": process.env.ALLOWED_ORIGIN || "*",
@@ -29,6 +53,22 @@ function parseRequestBody(event) {
 function safeScenario(value) {
   if (!value || typeof value !== "object") return {};
   return value;
+}
+
+function mergeScenario(...sources) {
+  const merged = {};
+
+  for (const source of sources) {
+    if (!source || typeof source !== "object") continue;
+
+    for (const [key, value] of Object.entries(source)) {
+      if (value !== undefined && value !== null && value !== "") {
+        merged[key] = value;
+      }
+    }
+  }
+
+  return merged;
 }
 
 function extractOutputText(response) {
@@ -74,19 +114,25 @@ export async function handler(event) {
   const userMessage = String(payload.message || "").trim();
   const scenario = safeScenario(payload.scenario);
   const localResult = payload.localResult || {};
+  const localScenario = safeScenario(localResult.scenario);
 
   if (!userMessage) {
     return jsonResponse(400, { message: "Message is required." });
   }
 
   const instructions = [
-    "You are Sally, a warm mortgage conversation guide for Choose My Rate.",
-    "Help borrowers build a loan scenario step by step.",
-    "Be concise, friendly, and practical. Ask one clear next question when information is missing.",
-    "Do not promise loan approval, exact rates, or underwriting outcomes.",
-    "Use the provided localResult.scenario as the source of truth for field extraction unless the user clearly corrects it.",
-    "Return only valid JSON with this shape: {\"message\":\"string\",\"scenario\":{...}}.",
+    "You are Sally, the mortgage conversation guide for Choose My Rate by Home Lenders of America.",
+    "Use the Sally prompt context below as your behavior layer: system prompt, knowledge context, guardrails, examples, and integration notes.",
+    "Keep SallyBrain.js as the fallback/control layer. The localResult is the deterministic parser output and should be treated as high-confidence structured extraction unless the user clearly corrects it.",
+    "Return prompt-based structured output only. Do not include markdown, code fences, or prose outside JSON.",
+    "Return JSON with this exact shape: {\"message\":\"string\",\"scenario\":{...},\"intent\":\"purchase|refinance|cash_out|reset|other\",\"confidence\":0.0}.",
     "The scenario object must preserve these keys when known: loanPurpose, purchasePrice, downPayment, downPaymentPercent, loanAmount, creditScore, loanType, occupancy, zipCode.",
+    "Ask one clear next question. Keep replies short, warm, professional, and compliant.",
+    "Never guarantee approval, exact rates, qualification, final fees, or final payment. Label estimates as estimates when explaining them.",
+    "If a request needs human review, say so calmly and continue guiding the scenario.",
+    "",
+    "SALLY PROMPT CONTEXT:",
+    sallyPromptContext,
   ].join("\n");
 
   const input = [
@@ -100,6 +146,22 @@ export async function handler(event) {
         userMessage,
         currentScenario: scenario,
         localResult,
+        requiredResponseShape: {
+          message: "string",
+          scenario: {
+            loanPurpose: "",
+            purchasePrice: "",
+            downPayment: "",
+            downPaymentPercent: "",
+            loanAmount: "",
+            creditScore: "",
+            loanType: "",
+            occupancy: "",
+            zipCode: "",
+          },
+          intent: "purchase|refinance|cash_out|reset|other",
+          confidence: 0.0,
+        },
       }),
     },
   ];
@@ -135,7 +197,9 @@ export async function handler(event) {
 
   return jsonResponse(200, {
     message: String(parsed.message || localResult.message || "Got it."),
-    scenario: safeScenario(parsed.scenario || localResult.scenario || scenario),
+    scenario: mergeScenario(scenario, localScenario, safeScenario(parsed.scenario)),
+    intent: parsed.intent || "other",
+    confidence: Number(parsed.confidence ?? 0),
     model: OPENAI_MODEL,
   });
 }

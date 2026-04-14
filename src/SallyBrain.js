@@ -1,301 +1,339 @@
 const DEFAULT_SCENARIO = {
-  loanPurpose: "",
-  language: "",
-  occupancy: "",
+  loanPurpose: "purchase",
   purchasePrice: "",
   downPayment: "",
   downPaymentPercent: "",
   loanAmount: "",
   creditScore: "",
-  propertyState: "",
-  propertyZip: "",
-  incomeMonthly: "",
-  monthlyDebts: "",
-  propertyType: "single_family",
-  loanProgram: "",
+  loanType: "Conventional",
+  occupancy: "",
+  zipCode: "",
 };
 
-const RESET_PATTERNS = [
-  /start over/i,
-  /reset/i,
-  /new scenario/i,
-  /begin again/i,
-  /clear everything/i,
-];
-
-const ENGLISH_PATTERNS = [/english/i, /in english/i];
-const SPANISH_PATTERNS = [/spanish/i, /espanol/i, /español/i];
-
-const OCCUPANCY_PATTERNS = [
-  { value: "primary", patterns: [/primary/i, /primary home/i, /live in it/i, /owner occupied/i] },
-  { value: "second_home", patterns: [/second home/i, /vacation home/i] },
-  { value: "investment", patterns: [/investment/i, /rental/i, /investor/i] },
-];
-
-const PURPOSE_PATTERNS = [
-  { value: "purchase", patterns: [/buy/i, /purchase/i, /buy a house/i, /looking to buy/i] },
-  { value: "refinance", patterns: [/refinance/i, /refi/i] },
-  { value: "cash_out", patterns: [/cash out/i, /cash-out/i, /pull cash/i, /take cash/i] },
-];
-
-const PROGRAM_PATTERNS = [
-  { value: "conventional", patterns: [/conventional/i, /conv/i] },
-  { value: "fha", patterns: [/fha/i] },
-  { value: "va", patterns: [/va\b/i, /veteran/i] },
-  { value: "usda", patterns: [/usda/i] },
-  { value: "jumbo", patterns: [/jumbo/i] },
-];
-
-function cloneScenario(scenario = {}) {
-  return { ...DEFAULT_SCENARIO, ...scenario };
+function normalizeText(value) {
+  return String(value || "").trim().toLowerCase();
 }
 
-function parsePrice(message) {
-  const match = message.match(/\$?\s?(\d{2,3}(?:[,.]\d{3})+|\d+(?:\.\d+)?)\s*(k|m)?/i);
-  if (!match) return "";
-
-  const base = Number(String(match[1]).replace(/,/g, ""));
-  const suffix = (match[2] || "").toLowerCase();
-
-  if (suffix === "k") return Math.round(base * 1000);
-  if (suffix === "m") return Math.round(base * 1000000);
-  return Math.round(base);
+function toNumber(value) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : 0;
 }
 
-function parseCreditScore(message) {
-  const match = message.match(/(?:credit score|score|fico)?\s*(?:is|around|about)?\s*(\d{3})/i);
-  if (!match) return "";
-  const score = Number(match[1]);
-  if (score < 300 || score > 850) return "";
-  return score;
+function cleanNumber(value) {
+  return String(value || "").replace(/[^0-9.]/g, "");
 }
 
-function parseMonthlyIncome(message) {
-  const monthlyMatch = message.match(/\$?\s?(\d{1,3}(?:[,.]\d{3})+|\d+(?:\.\d+)?)\s*(?:\/month|per month|monthly|a month)/i);
-  if (monthlyMatch) {
-    return Math.round(Number(String(monthlyMatch[1]).replace(/,/g, "")));
-  }
+function createScenarioCopy(currentScenario = DEFAULT_SCENARIO) {
+  return { ...DEFAULT_SCENARIO, ...currentScenario };
+}
 
-  const annualMatch = message.match(/\$?\s?(\d{2,3}(?:[,.]\d{3})+|\d+(?:\.\d+)?)\s*(k)?\s*(?:\/year|per year|yearly|annually|a year)/i);
-  if (annualMatch) {
-    const base = Number(String(annualMatch[1]).replace(/,/g, ""));
-    const annual = annualMatch[2] ? base * 1000 : base;
-    return Math.round(annual / 12);
-  }
-
+function inferLoanPurpose(text) {
+  if (/\bcash[\s-]?out\b/.test(text)) return "cash_out";
+  if (/\brefi|refinance\b/.test(text)) return "refinance";
+  if (/\bbuy|purchase|buying\b/.test(text)) return "purchase";
   return "";
 }
 
-function parseDownPayment(message) {
-  const pct = message.match(/(\d{1,2}(?:\.\d+)?)\s*%\s*(?:down|down payment)?/i);
-  if (pct) {
-    return { type: "percent", value: Number(pct[1]) };
-  }
-
-  const amountMatch = message.match(/(?:down payment|put down|putting down|down)\s*(?:is|will be)?\s*\$?\s?(\d{1,3}(?:[,.]\d{3})+|\d+(?:\.\d+)?)\s*(k|m)?/i);
-  if (amountMatch) {
-    const base = Number(String(amountMatch[1]).replace(/,/g, ""));
-    const suffix = (amountMatch[2] || "").toLowerCase();
-    if (suffix === "k") return { type: "amount", value: Math.round(base * 1000) };
-    if (suffix === "m") return { type: "amount", value: Math.round(base * 1000000) };
-    return { type: "amount", value: Math.round(base) };
-  }
-
-  return null;
+function inferOccupancy(text) {
+  if (/\binvestment|rental|investor\b/.test(text)) return "investment";
+  if (/\bsecond home|vacation\b/.test(text)) return "second_home";
+  if (/\bprimary|live in|owner occupied|my home\b/.test(text)) return "primary";
+  return "";
 }
 
-function detectIntent(message) {
-  if (!message || !message.trim()) return "unknown";
-
-  if (RESET_PATTERNS.some((pattern) => pattern.test(message))) return "reset_scenario";
-  if (/change|update|switch/i.test(message)) return "update_scenario";
-  if (/what can i afford|how much can i afford|qualify for/i.test(message)) return "affordability";
-  if (PURPOSE_PATTERNS.some((item) => item.patterns.some((pattern) => pattern.test(message)))) return "new_scenario";
-  return "collect_details";
+function inferLoanType(text) {
+  if (/\bfha\b/.test(text)) return "FHA";
+  if (/\bva\b/.test(text)) return "VA";
+  if (/\busda\b/.test(text)) return "USDA";
+  if (/\bconventional|conv\b/.test(text)) return "Conventional";
+  return "";
 }
 
-function detectLanguage(message, scenario) {
-  if (ENGLISH_PATTERNS.some((pattern) => pattern.test(message))) return "english";
-  if (SPANISH_PATTERNS.some((pattern) => pattern.test(message))) return "spanish";
-  return scenario.language || "";
+function extractCreditScore(text) {
+  const match = text.match(/\b([5-8]\d{2})\b/);
+  if (!match) return "";
+  const score = Number(match[1]);
+  if (score >= 500 && score <= 850) return String(score);
+  return "";
 }
 
-function detectPurpose(message, scenario) {
-  for (const item of PURPOSE_PATTERNS) {
-    if (item.patterns.some((pattern) => pattern.test(message))) return item.value;
-  }
-  return scenario.loanPurpose || "";
+function extractZipCode(text) {
+  const match = text.match(/\b(\d{5})\b/);
+  return match ? match[1] : "";
 }
 
-function detectOccupancy(message, scenario) {
-  for (const item of OCCUPANCY_PATTERNS) {
-    if (item.patterns.some((pattern) => pattern.test(message))) return item.value;
-  }
-  return scenario.occupancy || "";
+function detectReset(text) {
+  return /\b(start over|reset|new scenario|restart)\b/.test(text);
 }
 
-function detectProgram(message, scenario) {
-  for (const item of PROGRAM_PATTERNS) {
-    if (item.patterns.some((pattern) => pattern.test(message))) return item.value;
-  }
-  return scenario.loanProgram || "";
+function detectAffordabilityUnknown(text) {
+  return /\bnot sure|don'?t know|i don't know|whatever i qualify|what can i afford\b/.test(
+    text
+  );
 }
 
-function inferLoanAmount(scenario) {
-  const purchasePrice = Number(scenario.purchasePrice || 0);
-  if (!purchasePrice) return scenario.loanAmount || "";
+function extractMoneyValues(text) {
+  const normalized = text.replace(/,/g, "");
+  const results = [];
 
-  if (typeof scenario.downPayment === "number") {
-    return Math.max(purchasePrice - scenario.downPayment, 0);
+  const regex =
+    /\$?\s*(\d+(?:\.\d+)?)\s*(k|m|million|thousand)?/gi;
+
+  let match;
+  while ((match = regex.exec(normalized)) !== null) {
+    const raw = Number(match[1]);
+    const suffix = normalizeText(match[2]);
+
+    if (!Number.isFinite(raw)) continue;
+
+    let amount = raw;
+
+    if (suffix === "k") amount = raw * 1000;
+    if (suffix === "m" || suffix === "million") amount = raw * 1000000;
+    if (suffix === "thousand") amount = raw * 1000;
+
+    if (!suffix && raw < 1000 && !text.includes("$")) continue;
+
+    results.push(Math.round(amount));
   }
 
-  if (scenario.downPaymentPercent) {
-    return Math.max(Math.round(purchasePrice * (1 - scenario.downPaymentPercent / 100)), 0);
-  }
-
-  return scenario.loanAmount || "";
+  return results;
 }
 
-function applyExtractedData(currentScenario, message) {
-  const scenario = cloneScenario(currentScenario);
+function applyDerivedValues(scenario) {
+  const purchasePrice = toNumber(scenario.purchasePrice);
+  const downPayment = toNumber(scenario.downPayment);
+  const loanAmount = toNumber(scenario.loanAmount);
 
-  scenario.language = detectLanguage(message, scenario);
-  scenario.loanPurpose = detectPurpose(message, scenario);
-  scenario.occupancy = detectOccupancy(message, scenario);
-  scenario.loanProgram = detectProgram(message, scenario);
-
-  const parsedPrice = parsePrice(message);
-  if (parsedPrice && !/credit score/i.test(message)) {
-    if (/purchase price|price range|home price|house price|buy/i.test(message) || !scenario.purchasePrice) {
-      scenario.purchasePrice = parsedPrice;
-    }
+  if (purchasePrice > 0 && downPayment > 0 && !loanAmount) {
+    scenario.loanAmount = String(Math.max(purchasePrice - downPayment, 0));
   }
 
-  const parsedCredit = parseCreditScore(message);
-  if (parsedCredit) {
-    scenario.creditScore = parsedCredit;
+  if (purchasePrice > 0 && loanAmount > 0 && !downPayment) {
+    scenario.downPayment = String(Math.max(purchasePrice - loanAmount, 0));
   }
 
-  const parsedIncome = parseMonthlyIncome(message);
-  if (parsedIncome) {
-    scenario.incomeMonthly = parsedIncome;
+  const freshPurchasePrice = toNumber(scenario.purchasePrice);
+  const freshDownPayment = toNumber(scenario.downPayment);
+
+  if (freshPurchasePrice > 0 && freshDownPayment > 0) {
+    scenario.downPaymentPercent = (
+      (freshDownPayment / freshPurchasePrice) *
+      100
+    ).toFixed(3);
   }
 
-  const parsedDownPayment = parseDownPayment(message);
-  if (parsedDownPayment) {
-    if (parsedDownPayment.type === "amount") {
-      scenario.downPayment = parsedDownPayment.value;
-      scenario.downPaymentPercent = "";
-    }
-    if (parsedDownPayment.type === "percent") {
-      scenario.downPaymentPercent = parsedDownPayment.value;
-      scenario.downPayment = "";
-    }
-  }
-
-  scenario.loanAmount = inferLoanAmount(scenario);
   return scenario;
 }
 
-function getMissingFields(scenario) {
-  const orderedFields = [
-    "loanPurpose",
-    "language",
-    "occupancy",
-    "purchasePrice",
-    "downPayment",
-    "creditScore",
-  ];
+function fillScenarioFromMessage(currentScenario, message) {
+  const scenario = createScenarioCopy(currentScenario);
+  const text = normalizeText(message);
+  const moneyValues = extractMoneyValues(message);
 
-  return orderedFields.filter((field) => {
-    if (field === "downPayment") {
-      return !scenario.downPayment && !scenario.downPaymentPercent;
+  const purpose = inferLoanPurpose(text);
+  if (purpose) scenario.loanPurpose = purpose;
+
+  const occupancy = inferOccupancy(text);
+  if (occupancy) scenario.occupancy = occupancy;
+
+  const loanType = inferLoanType(text);
+  if (loanType) scenario.loanType = loanType;
+
+  const creditScore = extractCreditScore(text);
+  if (creditScore) scenario.creditScore = creditScore;
+
+  const zipCode = extractZipCode(text);
+  if (zipCode) scenario.zipCode = zipCode;
+
+  if (/\bdown payment\b/.test(text) && moneyValues[0]) {
+    scenario.downPayment = String(moneyValues[0]);
+  }
+
+  if (/\bloan amount\b/.test(text) && moneyValues[0]) {
+    scenario.loanAmount = String(moneyValues[0]);
+  }
+
+  if (
+    /\bpurchase price\b/.test(text) ||
+    /\bhouse for\b/.test(text) ||
+    /\bbuy.*for\b/.test(text) ||
+    /\bprice\b/.test(text)
+  ) {
+    if (moneyValues[0]) {
+      scenario.purchasePrice = String(moneyValues[0]);
     }
-    return !scenario[field];
-  });
+  } else if (
+    scenario.loanPurpose === "purchase" &&
+    !scenario.purchasePrice &&
+    moneyValues[0]
+  ) {
+    scenario.purchasePrice = String(moneyValues[0]);
+  }
+
+  if (
+    /\b(\d+(?:\.\d+)?)\s*%\s*(down|down payment)?\b/.test(text) &&
+    toNumber(scenario.purchasePrice) > 0
+  ) {
+    const percentMatch = text.match(/\b(\d+(?:\.\d+)?)\s*%/);
+    if (percentMatch) {
+      const percent = Number(percentMatch[1]);
+      scenario.downPaymentPercent = percent.toFixed(3);
+      scenario.downPayment = String(
+        Math.round((toNumber(scenario.purchasePrice) * percent) / 100)
+      );
+      scenario.loanAmount = String(
+        Math.max(toNumber(scenario.purchasePrice) - toNumber(scenario.downPayment), 0)
+      );
+    }
+  }
+
+  return applyDerivedValues(scenario);
 }
 
-function formatCurrency(value) {
-  if (!value) return "$0";
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 0,
-  }).format(Number(value));
+function nextQuestionForScenario(scenario) {
+  if (!scenario.loanPurpose) {
+    return "Are you looking to buy a home, refinance, or take cash out?";
+  }
+
+  if (scenario.loanPurpose === "purchase") {
+    if (!scenario.occupancy) {
+      return "Will this be your primary home, second home, or an investment property?";
+    }
+
+    if (!scenario.purchasePrice) {
+      return "What price range are you looking at?";
+    }
+
+    if (!scenario.downPayment && !scenario.loanAmount) {
+      return "How much are you planning to put down?";
+    }
+
+    if (!scenario.creditScore) {
+      return "About where is your credit score right now?";
+    }
+
+    if (!scenario.loanType) {
+      return "Do you want to look at Conventional, FHA, VA, or USDA financing?";
+    }
+
+    if (!scenario.zipCode) {
+      return "What ZIP code are you shopping in?";
+    }
+
+    return "Great. I updated your scenario. You can keep adjusting the numbers or tell me what you want to change next.";
+  }
+
+  if (scenario.loanPurpose === "refinance" || scenario.loanPurpose === "cash_out") {
+    if (!scenario.occupancy) {
+      return "Is this property your primary home, second home, or investment property?";
+    }
+
+    if (!scenario.purchasePrice) {
+      return "What is the estimated value of the property?";
+    }
+
+    if (!scenario.loanAmount) {
+      return "About how much do you currently owe on the property?";
+    }
+
+    if (!scenario.creditScore) {
+      return "About where is your credit score right now?";
+    }
+
+    if (!scenario.loanType) {
+      return "Do you want to explore Conventional, FHA, VA, or USDA options?";
+    }
+
+    if (!scenario.zipCode) {
+      return "What ZIP code is the property in?";
+    }
+
+    return "Perfect. I updated your refinance scenario. Tell me what you want to adjust next.";
+  }
+
+  return "Tell me a little more about the scenario you want to build.";
 }
 
-function nextQuestionForField(field, scenario) {
-  const questions = {
-    loanPurpose: "Are you looking to buy a home, refinance, or take cash out?",
-    language: "Would you like to continue in English or Spanish?",
-    occupancy: "Will this be your primary home, second home, or an investment property?",
-    purchasePrice: "What price range are you looking at?",
-    downPayment: scenario.purchasePrice
-      ? `How much do you want to put down on a ${formatCurrency(scenario.purchasePrice)} purchase?`
-      : "How much do you want to put down?",
-    creditScore: "About where is your credit score right now?",
-  };
+function buildReplyPrefix(previousScenario, updatedScenario) {
+  const changes = [];
 
-  return questions[field] || "Tell me a little more so I can build the loan scenario.";
+  if (updatedScenario.loanPurpose !== previousScenario.loanPurpose && updatedScenario.loanPurpose) {
+    const purposeMap = {
+      purchase: "purchase",
+      refinance: "refinance",
+      cash_out: "cash-out",
+    };
+    changes.push(`I set this up as a ${purposeMap[updatedScenario.loanPurpose]} scenario`);
+  }
+
+  if (updatedScenario.occupancy !== previousScenario.occupancy && updatedScenario.occupancy) {
+    const occupancyMap = {
+      primary: "primary home",
+      second_home: "second home",
+      investment: "investment property",
+    };
+    changes.push(`I marked the occupancy as ${occupancyMap[updatedScenario.occupancy]}`);
+  }
+
+  if (updatedScenario.purchasePrice !== previousScenario.purchasePrice && updatedScenario.purchasePrice) {
+    changes.push(`I added the purchase price`);
+  }
+
+  if (updatedScenario.downPayment !== previousScenario.downPayment && updatedScenario.downPayment) {
+    changes.push(`I added your down payment`);
+  }
+
+  if (updatedScenario.loanAmount !== previousScenario.loanAmount && updatedScenario.loanAmount) {
+    changes.push(`I added the loan amount`);
+  }
+
+  if (updatedScenario.creditScore !== previousScenario.creditScore && updatedScenario.creditScore) {
+    changes.push(`I added your credit score`);
+  }
+
+  if (updatedScenario.loanType !== previousScenario.loanType && updatedScenario.loanType) {
+    changes.push(`I updated the loan type`);
+  }
+
+  if (updatedScenario.zipCode !== previousScenario.zipCode && updatedScenario.zipCode) {
+    changes.push(`I added the ZIP code`);
+  }
+
+  if (!changes.length) return "Got it.";
+  return `${changes.join(". ")}.`;
 }
 
-function buildNaturalIntro(intent, scenario) {
-  if (intent === "reset_scenario") {
-    return "Absolutely. I cleared everything and we’re starting fresh.";
-  }
-
-  if (scenario.loanProgram && scenario.purchasePrice) {
-    return `Got it. I’m building a ${scenario.loanProgram.toUpperCase()} scenario around ${formatCurrency(scenario.purchasePrice)}.`;
-  }
-
-  if (scenario.purchasePrice) {
-    return `Perfect. I’m building this around a purchase price of ${formatCurrency(scenario.purchasePrice)}.`;
-  }
-
-  if (scenario.occupancy === "primary") {
-    return "Perfect. I’ve got this as your primary home.";
-  }
-
-  if (scenario.occupancy === "investment") {
-    return "Got it. I’ve got this as an investment property.";
-  }
-
-  return "Got it.";
+export function createEmptyScenario() {
+  return { ...DEFAULT_SCENARIO };
 }
 
-function buildResponse(intent, scenario) {
-  const missing = getMissingFields(scenario);
-  const naturalIntro = buildNaturalIntro(intent, scenario);
+export function processSallyMessage(message, currentScenario = DEFAULT_SCENARIO) {
+  const text = normalizeText(message);
 
-  if (!missing.length) {
+  if (detectReset(text)) {
     return {
-      message: `${naturalIntro} I have the main scenario details. Next I can help estimate payments, review loan options, or compare programs.`,
+      message: "Absolutely. We’re starting fresh. Are you looking to buy a home, refinance, or take cash out?",
+      scenario: createEmptyScenario(),
+    };
+  }
+
+  if (detectAffordabilityUnknown(text)) {
+    const scenario = createScenarioCopy(currentScenario);
+    return {
+      message:
+        "That’s okay. We can still build it step by step. Let’s start with whether this is a purchase, refinance, or cash-out scenario.",
       scenario,
     };
   }
 
-  const nextField = missing[0];
+  const previousScenario = createScenarioCopy(currentScenario);
+  const updatedScenario = fillScenarioFromMessage(currentScenario, message);
+  const prefix = buildReplyPrefix(previousScenario, updatedScenario);
+  const nextQuestion = nextQuestionForScenario(updatedScenario);
 
   return {
-    message: `${naturalIntro} ${nextQuestionForField(nextField, scenario)}`,
-    scenario,
+    message: `${prefix} ${nextQuestion}`.trim(),
+    scenario: updatedScenario,
   };
 }
-
-export function createEmptyScenario() {
-  return cloneScenario(DEFAULT_SCENARIO);
-}
-
-export function processSallyMessage(message, currentScenario = DEFAULT_SCENARIO) {
-  const intent = detectIntent(message);
-
-  if (intent === "reset_scenario") {
-    const freshScenario = createEmptyScenario();
-    return buildResponse(intent, freshScenario);
-  }
-
-  const updatedScenario = applyExtractedData(currentScenario, message);
-  return buildResponse(intent, updatedScenario);
-}
-
-export { DEFAULT_SCENARIO };

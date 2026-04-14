@@ -176,7 +176,6 @@ function calculatePricing(scenario, manualRate = null) {
   const delta = liveRate - baseRate;
 
   let pointsPct = 0;
-
   if (Math.abs(delta) < 0.001) {
     pointsPct = 0;
   } else {
@@ -232,6 +231,7 @@ export default function App() {
     appraisalValue: "",
     occupancy: "primary",
   }));
+
   const [prompt, setPrompt] = useState(INITIAL_PROMPT);
   const [lastAnswer, setLastAnswer] = useState("");
   const [input, setInput] = useState("");
@@ -430,22 +430,35 @@ export default function App() {
 
         <section className="sally-section">
           <div className="sally-header">
-            <div className="sally-identity">
-              <div className={`sally-status-dot ${isSpeaking ? "speaking" : isListening ? "listening" : ""}`} />
-              <div>
-                <div className="sally-name">Sally</div>
-                <div className="sally-subtitle-text">Your mortgage conversation guide</div>
+            <div className="sally-left-zone">
+              <div className="sally-identity">
+                <div className={`sally-status-dot ${isSpeaking ? "speaking" : isListening ? "listening" : ""}`} />
+                <div>
+                  <div className="sally-name">Sally</div>
+                  <div className="sally-subtitle-text">Your mortgage conversation guide</div>
+                </div>
               </div>
-            </div>
 
-            <div className="sally-right-tools">
-              <div className="sally-controls">
-                <button type="button" className="icon-control" onClick={startVoice} disabled={!speechSupported} title="Talk">
+              <div className="sally-inline-controls">
+                <button
+                  type="button"
+                  className="icon-control"
+                  onClick={startVoice}
+                  disabled={!speechSupported}
+                  title="Talk"
+                >
                   🎤
                 </button>
-                <button type="button" className="icon-control" onClick={stopVoice} title="Stop">
+
+                <button
+                  type="button"
+                  className="icon-control"
+                  onClick={stopVoice}
+                  title="Stop"
+                >
                   ⏹
                 </button>
+
                 <button
                   type="button"
                   className={`icon-control ${voiceEnabled ? "active-control" : ""}`}
@@ -455,7 +468,9 @@ export default function App() {
                   🔊
                 </button>
               </div>
+            </div>
 
+            <div className="sally-right-tools">
               <div className="top-actions">
                 <button type="button" className="top-action-btn">Request a Call</button>
                 <button type="button" className="top-action-btn">Save Scenario</button>

@@ -1,694 +1,668 @@
-// SallyIntelligence.js
-// HLOA4 - Full borrower conversation flow with language-first sequence
+import { classifyIntent, normalizeText } from './intentClassifier';
 
-export const DEFAULT_SCENARIO = {
-  language: "",
-  purpose: "",
-  loanPurpose: "",
-  occupancy: "",
-  propertyUse: "",
-  propertyType: "",
-  refinanceGoal: "",
-  timeline: "",
-  programPreference: "",
+const STEP_ORDER = [
+  'language',
+  'loanType',
+  'occupancy',
+  'purchasePrice',
+  'downPayment',
+  'creditScore',
+  'monthlyIncome',
+  'zipCode',
+  'area',
+];
 
-  purchasePrice: null,
-  estimatedValue: null,
-  appraisalValue: null,
-  downPayment: null,
-  downPaymentPercent: null,
-  loanAmount: null,
-  desiredCashOut: null,
-  currentLoanBalance: null,
-  creditScoreRange: "",
-  creditScore: "",
-  monthlyIncome: null,
-  monthlyDebts: null,
-  zipCode: "",
-  area: "",
-  county: "",
-  state: "",
+function toTitleCase(value = '') {
+  return String(value)
+    .trim()
+    .split(/\s+/)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(' ');
+}
 
-  loanType: "",
-  loanTerm: "30-Year Fixed",
+function parseMoney(value = '') {
+  const raw = String(value)
+    .toLowerCase()
+    .replace(/\$/g, '')
+    .replace(/,/g, '')
+    .trim();
 
-  lastReviewed: false,
-};
+  if (!raw) return '';
 
-export const STAGES = {
-  LANGUAGE: "language",
-  PURPOSE: "purpose",
-  OCCUPANCY: "occupancy",
-  PRICE: "price",
-  DOWN_PAYMENT: "down_payment",
-  CREDIT: "credit",
-  INCOME: "income",
-  LOCATION: "location",
-  REVIEW: "review",
-  PRICING_READY: "pricing_ready",
-};
+  const match = raw.match(/(\d+(\.\d+)?)(k)?/);
+  if (!match) return '';
 
-export const INTENTS = {
-  SET_LANGUAGE: "set_language",
+  const num = Number(match[1]);
+  if (!Number.isFinite(num)) return '';
 
-  START_PURCHASE: "start_purchase",
-  START_REFINANCE: "start_refinance",
-  START_EXPLORE: "start_explore",
+  return match[3] ? Math.round(num * 1000) : Math.round(num);
+}
 
-  SET_OCCUPANCY: "set_occupancy",
-  SET_PURCHASE_PRICE: "set_purchase_price",
-  SET_DOWN_PAYMENT: "set_down_payment",
-  SET_CREDIT: "set_credit",
-  SET_INCOME: "set_income",
-  SET_LOCATION: "set_location",
-  SET_PROGRAM: "set_program",
+function parseIncome(value = '') {
+  const text = normalizeText(value);
+  const amount = parseMoney(text);
 
-  CONFIRM_REVIEW: "confirm_review",
-  REJECT_REVIEW: "reject_review",
-  RESET_SCENARIO: "reset_scenario",
+  if (amount === '') return '';
 
-  UNKNOWN: "unknown",
-};
+  if (
+    text.includes('per year') ||
+    text.includes('a year') ||
+    text.includes('yearly') ||
+    text.includes('annual') ||
+    text.includes('annually')
+  ) {
+    return Math.round(amount / 12);
+  }
+
+  if (
+    text.includes('biweekly') ||
+    text.includes('bi-weekly') ||
+    text.includes('every two weeks')
+  ) {
+    return Math.round((amount * 26) / 12);
+  }
+
+  if (
+    text.includes('weekly') ||
+    text.includes('per week') ||
+    text.includes('a week')
+  ) {
+    return Math.round((amount * 52) / 12);
+  }
+
+  return amount;
+}
+
+function parseZip(value = '') {
+  const match = String(value).match(/\b\d{5}\b/);
+  return match ? match[0] : '';
+}
+
+function normalizeLanguage(value = '') {
+  const text = normalizeText(value);
+
+  if (
+    text.includes('español') ||
+    text.includes('spanish') ||
+    text === 'es'
+  ) {
+    return 'Spanish';
+  }
+
+  if (
+    text.includes('english') ||
+    text === 'en'
+  ) {
+    return 'English';
+  }
+
+  return '';
+}
+
+function normalizeLoanType(value = '') {
+  const text = normalizeText(value);
+
+  if (text.includes('fha')) return 'FHA';
+  if (text.includes('conventional') || text.includes('conv')) return 'Conventional';
+  if (text.includes('va')) return 'VA';
+  if (text.includes('usda')) return 'USDA';
+
+  return '';
+}
+
+function normalizePurpose(value = '') {
+  const text = normalizeText(value);
+
+  if (
+    text.includes('purchase') ||
+    text.includes('buy') ||
+    text.includes('buying') ||
+    text.includes('compra')
+  ) {
+    return 'Purchase';
+  }
+
+  if (
+    text.includes('refi') ||
+    text.includes('refinance') ||
+    text.includes('refinancing')
+  ) {
+    return 'Refinance';
+  }
+
+  return '';
+}
+
+function normalizeOccupancy(value = '') {
+  const text = normalizeText(value);
+
+  if (
+    text.includes('primary') ||
+    text.includes('primary residence') ||
+    text.includes('live in it') ||
+    text.includes('living in it') ||
+    text.includes('owner occupied')
+  ) {
+    return 'Primary Residence';
+  }
+
+  if (
+    text.includes('second home') ||
+    text.includes('vacation home') ||
+    text.includes('second')
+  ) {
+    return 'Second Home';
+  }
+
+  if (
+    text.includes('investment') ||
+    text.includes('rental') ||
+    text.includes('investor')
+  ) {
+    return 'Investment Property';
+  }
+
+  return '';
+}
+
+function normalizeTerm(value = '') {
+  const text = normalizeText(value);
+
+  if (text.includes('15')) return '15-Year Fixed';
+  if (text.includes('20')) return '20-Year Fixed';
+  if (text.includes('30')) return '30-Year Fixed';
+
+  return '';
+}
+
+function normalizeCredit(value = '') {
+  const text = String(value);
+  const match = text.match(/\b([3-8]\d{2})\b/);
+  if (!match) return '';
+  const score = Number(match[1]);
+  if (score < 300 || score > 850) return '';
+  return String(score);
+}
+
+function parseDownPayment(message = '', purchasePrice = 0) {
+  const text = normalizeText(message);
+
+  if (!text) return null;
+
+  const percentMatch = text.match(/(\d+(\.\d+)?)\s*%/);
+  if (percentMatch) {
+    const percent = Number(percentMatch[1]);
+    if (!Number.isFinite(percent)) return null;
+
+    const amount =
+      purchasePrice > 0 ? Math.round((purchasePrice * percent) / 100) : '';
+
+    return {
+      downPaymentPercent: Number(percent.toFixed(2)),
+      downPaymentAmount: amount,
+    };
+  }
+
+  const mentionsDown =
+    text.includes('down') ||
+    text.includes('put down') ||
+    text.includes('cash down') ||
+    text.includes('down payment');
+
+  if (mentionsDown || text.includes('$')) {
+    const amount = parseMoney(text);
+    if (amount !== '') {
+      const percent =
+        purchasePrice > 0 ? Number(((amount / purchasePrice) * 100).toFixed(2)) : '';
+
+      return {
+        downPaymentAmount: amount,
+        downPaymentPercent: percent,
+      };
+    }
+  }
+
+  return null;
+}
+
+function parsePriceRange(message = '') {
+  const text = normalizeText(message);
+  const matches = Array.from(
+    String(message).matchAll(/\$?\s*(\d[\d,]*(?:\.\d+)?)\s*(k)?/gi)
+  );
+
+  if (!matches.length) return '';
+
+  const amounts = matches
+    .map((match) => {
+      const num = Number(String(match[1]).replace(/,/g, ''));
+      if (!Number.isFinite(num)) return null;
+      return match[2] ? Math.round(num * 1000) : Math.round(num);
+    })
+    .filter(Boolean);
+
+  if (!amounts.length) return '';
+
+  if (
+    text.includes('price') ||
+    text.includes('purchase') ||
+    text.includes('looking at') ||
+    text.includes('budget') ||
+    text.includes('range')
+  ) {
+    return Math.max(...amounts);
+  }
+
+  return '';
+}
+
+function parseArea(message = '', currentStep = '') {
+  const raw = String(message).trim();
+  const text = normalizeText(raw);
+
+  const countyMatch = raw.match(/([A-Za-z\s]+County)/i);
+  if (countyMatch) return toTitleCase(countyMatch[1]);
+
+  const cityMatch = raw.match(/([A-Za-z\s]+City)/i);
+  if (cityMatch) return toTitleCase(cityMatch[1]);
+
+  const areaMatch = raw.match(/area[:\s]+([A-Za-z\s]+)/i);
+  if (areaMatch) return toTitleCase(areaMatch[1]);
+
+  if (
+    currentStep === 'area' &&
+    /[a-z]/i.test(raw) &&
+    !/\d/.test(raw) &&
+    raw.length <= 40
+  ) {
+    return toTitleCase(raw);
+  }
+
+  return '';
+}
+
+function isFieldComplete(scenario, field) {
+  switch (field) {
+    case 'downPayment':
+      return Boolean(
+        scenario.downPaymentAmount !== '' || scenario.downPaymentPercent !== ''
+      );
+    default:
+      return Boolean(scenario[field]);
+  }
+}
+
+function getNextMissingField(scenario) {
+  for (const field of STEP_ORDER) {
+    if (!isFieldComplete(scenario, field)) {
+      return field;
+    }
+  }
+  return null;
+}
+
+function questionForField(field) {
+  switch (field) {
+    case 'language':
+      return 'Would you like to continue in English or Spanish?';
+    case 'loanType':
+      return 'What loan type would you like me to price first: Conventional, FHA, VA, or USDA?';
+    case 'occupancy':
+      return 'Will this be primary, investment, or second home?';
+    case 'purchasePrice':
+      return 'What price range are you looking at?';
+    case 'downPayment':
+      return 'About how much are you planning to put down? You can tell me a dollar amount or percent.';
+    case 'creditScore':
+      return 'About what is your credit score?';
+    case 'monthlyIncome':
+      return 'What is your monthly income? If easier, tell me annual income and I will convert it.';
+    case 'zipCode':
+      return 'What property ZIP code are you looking in?';
+    case 'area':
+      return 'What city or county are you looking in?';
+    default:
+      return 'Tell me a little more about the scenario.';
+  }
+}
+
+function buildSummary(scenario) {
+  const parts = [];
+
+  if (scenario.language) parts.push(`Language: ${scenario.language}`);
+  if (scenario.loanType) parts.push(`Loan Type: ${scenario.loanType}`);
+  if (scenario.loanPurpose) parts.push(`Loan Purpose: ${scenario.loanPurpose}`);
+  if (scenario.occupancy) parts.push(`Occupancy: ${scenario.occupancy}`);
+  if (scenario.purchasePrice) parts.push(`Purchase Price: $${Number(scenario.purchasePrice).toLocaleString()}`);
+  if (scenario.downPaymentAmount) parts.push(`Down Payment: $${Number(scenario.downPaymentAmount).toLocaleString()}`);
+  if (scenario.downPaymentPercent) parts.push(`Down Payment %: ${scenario.downPaymentPercent}%`);
+  if (scenario.loanAmount) parts.push(`Loan Amount: $${Number(scenario.loanAmount).toLocaleString()}`);
+  if (scenario.creditScore) parts.push(`Credit Score: ${scenario.creditScore}`);
+  if (scenario.monthlyIncome) parts.push(`Monthly Income: $${Number(scenario.monthlyIncome).toLocaleString()}`);
+  if (scenario.zipCode) parts.push(`ZIP Code: ${scenario.zipCode}`);
+  if (scenario.area) parts.push(`Area: ${scenario.area}`);
+  if (scenario.term) parts.push(`Loan Term: ${scenario.term}`);
+
+  return parts.join(' | ');
+}
+
+function recalcScenario(input) {
+  const next = { ...input };
+
+  const purchasePrice = Number(next.purchasePrice) || 0;
+  const downAmount = Number(next.downPaymentAmount) || 0;
+  const downPercent = Number(next.downPaymentPercent) || 0;
+  const loanAmount = Number(next.loanAmount) || 0;
+
+  if (purchasePrice > 0) {
+    if (!downAmount && downPercent > 0) {
+      next.downPaymentAmount = Math.round((purchasePrice * downPercent) / 100);
+    }
+
+    if (!downPercent && downAmount > 0) {
+      next.downPaymentPercent = Number(((downAmount / purchasePrice) * 100).toFixed(2));
+    }
+
+    if (!loanAmount) {
+      next.loanAmount = Math.max(
+        0,
+        purchasePrice - (Number(next.downPaymentAmount) || 0)
+      );
+    }
+
+    if (loanAmount > 0 && !downAmount) {
+      const computedDown = Math.max(0, purchasePrice - loanAmount);
+      next.downPaymentAmount = computedDown;
+      next.downPaymentPercent = Number(((computedDown / purchasePrice) * 100).toFixed(2));
+    }
+  }
+
+  if (!next.loanPurpose) {
+    next.loanPurpose = 'Purchase';
+  }
+
+  if (!next.term) {
+    next.term = '30-Year Fixed';
+  }
+
+  return next;
+}
+
+function extractScenarioUpdates(message, currentScenario, currentStep) {
+  const raw = String(message || '').trim();
+  const text = normalizeText(raw);
+  const next = { ...currentScenario };
+  let changed = false;
+
+  const language = normalizeLanguage(raw);
+  if (language && language !== next.language) {
+    next.language = language;
+    changed = true;
+  }
+
+  const purpose = normalizePurpose(raw);
+  if (purpose && purpose !== next.loanPurpose) {
+    next.loanPurpose = purpose;
+    changed = true;
+  }
+
+  const loanType = normalizeLoanType(raw);
+  if (loanType && loanType !== next.loanType) {
+    next.loanType = loanType;
+    changed = true;
+  }
+
+  const occupancy = normalizeOccupancy(raw);
+  if (occupancy && occupancy !== next.occupancy) {
+    next.occupancy = occupancy;
+    changed = true;
+  }
+
+  const term = normalizeTerm(raw);
+  if (term && term !== next.term) {
+    next.term = term;
+    changed = true;
+  }
+
+  const zipCode = parseZip(raw);
+  if (zipCode && zipCode !== next.zipCode) {
+    next.zipCode = zipCode;
+    changed = true;
+  }
+
+  const area = parseArea(raw, currentStep);
+  if (area && area !== next.area) {
+    next.area = area;
+    changed = true;
+  }
+
+  const creditScore =
+    text.includes('credit') || text.includes('score') || currentStep === 'creditScore'
+      ? normalizeCredit(raw)
+      : '';
+  if (creditScore && creditScore !== next.creditScore) {
+    next.creditScore = creditScore;
+    changed = true;
+  }
+
+  const purchasePrice =
+    text.includes('purchase') ||
+    text.includes('price') ||
+    text.includes('looking at') ||
+    text.includes('budget') ||
+    text.includes('range') ||
+    currentStep === 'purchasePrice'
+      ? parsePriceRange(raw)
+      : '';
+  if (purchasePrice && purchasePrice !== next.purchasePrice) {
+    next.purchasePrice = purchasePrice;
+    changed = true;
+  }
+
+  const downPayment =
+    text.includes('down') ||
+    text.includes('%') ||
+    currentStep === 'downPayment'
+      ? parseDownPayment(raw, Number(next.purchasePrice) || 0)
+      : null;
+  if (downPayment) {
+    if (
+      downPayment.downPaymentAmount !== undefined &&
+      downPayment.downPaymentAmount !== '' &&
+      downPayment.downPaymentAmount !== next.downPaymentAmount
+    ) {
+      next.downPaymentAmount = downPayment.downPaymentAmount;
+      changed = true;
+    }
+
+    if (
+      downPayment.downPaymentPercent !== undefined &&
+      downPayment.downPaymentPercent !== '' &&
+      downPayment.downPaymentPercent !== next.downPaymentPercent
+    ) {
+      next.downPaymentPercent = downPayment.downPaymentPercent;
+      changed = true;
+    }
+  }
+
+  const incomeShouldParse =
+    text.includes('income') ||
+    text.includes('make') ||
+    text.includes('earn') ||
+    text.includes('per month') ||
+    text.includes('a month') ||
+    text.includes('per year') ||
+    text.includes('a year') ||
+    currentStep === 'monthlyIncome';
+
+  if (incomeShouldParse) {
+    const monthlyIncome = parseIncome(raw);
+    if (monthlyIncome !== '' && monthlyIncome !== next.monthlyIncome) {
+      next.monthlyIncome = monthlyIncome;
+      changed = true;
+    }
+  }
+
+  return {
+    changed,
+    scenario: recalcScenario(next),
+  };
+}
 
 export function createEmptyScenario() {
-  return { ...DEFAULT_SCENARIO };
-}
-
-export function processSallyMessage(message, currentScenario = DEFAULT_SCENARIO) {
-  const safeMessage = String(message || "").trim();
-  const intent = classifyIntent(safeMessage, currentScenario);
-  const extracted = extractScenarioData(safeMessage, intent, currentScenario);
-  const updatedScenario = mergeScenario(currentScenario, extracted, intent);
-  const nextStage = determineNextStage(updatedScenario, intent);
-
-  return buildResponse(intent, updatedScenario, nextStage);
-}
-
-function classifyIntent(message, currentScenario = DEFAULT_SCENARIO) {
-  const text = normalizeText(message);
-
-  if (!text) return INTENTS.UNKNOWN;
-
-  if (/(start over|reset|new scenario|clear everything|begin again)/.test(text)) {
-    return INTENTS.RESET_SCENARIO;
-  }
-
-  if (/^(english|spanish|espanol|español)$/.test(text)) {
-    return INTENTS.SET_LANGUAGE;
-  }
-
-  if (/(i want to buy|buy a house|buy a home|purchase a house|purchase a home|purchase)/.test(text)) {
-    return INTENTS.START_PURCHASE;
-  }
-
-  if (/(refinance|cash out|cashout|lower my payment|lower payment|rate and term)/.test(text)) {
-    return INTENTS.START_REFINANCE;
-  }
-
-  if (/(just exploring|just looking|exploring|see my options|not sure yet)/.test(text)) {
-    return INTENTS.START_EXPLORE;
-  }
-
-  if (/^(primary|primary residence|owner occupied|i'm going to live in it|i will live in it)$/.test(text)) {
-    return INTENTS.SET_OCCUPANCY;
-  }
-
-  if (/^(investment|investment property|rental|investor)$/.test(text)) {
-    return INTENTS.SET_OCCUPANCY;
-  }
-
-  if (/^(second home|vacation home|second)$/.test(text)) {
-    return INTENTS.SET_OCCUPANCY;
-  }
-
-  if (/(primary residence|owner occupied|live in it|investment property|rental|second home|vacation home)/.test(text)) {
-    return INTENTS.SET_OCCUPANCY;
-  }
-
-  if (/^\d{5}$/.test(text)) {
-    return INTENTS.SET_LOCATION;
-  }
-
-  if (containsZipCode(text) && !containsMoneyWords(text)) {
-    return INTENTS.SET_LOCATION;
-  }
-
-  if (/(fha|conventional|va|usda)/.test(text)) {
-    return INTENTS.SET_PROGRAM;
-  }
-
-  if (/(credit|fico|score|excellent credit|good credit|fair credit|poor credit)/.test(text)) {
-    return INTENTS.SET_CREDIT;
-  }
-
-  if (/^\d{3}$/.test(text)) {
-    return INTENTS.SET_CREDIT;
-  }
-
-  if (/(income|make|salary|monthly income|per month|before taxes|a month)/.test(text)) {
-    return INTENTS.SET_INCOME;
-  }
-
-  if (/(down payment|put down|% down|percent down|enganche)/.test(text)) {
-    return INTENTS.SET_DOWN_PAYMENT;
-  }
-
-  if (/^\d+(k)?\s*down$/.test(text)) {
-    return INTENTS.SET_DOWN_PAYMENT;
-  }
-
-  if (/^\d{1,2}(\.\d+)?%$/.test(text) && currentScenario.purpose === "purchase") {
-    return INTENTS.SET_DOWN_PAYMENT;
-  }
-
-  if (/(yes|correct|that looks right|looks right|that's right)/.test(text)) {
-    return INTENTS.CONFIRM_REVIEW;
-  }
-
-  if (/(no|not right|that is wrong|that's wrong|incorrect|change it|change that)/.test(text)) {
-    return INTENTS.REJECT_REVIEW;
-  }
-
-  if (currentScenario.purpose === "purchase" && looksLikePriceAnswer(text)) {
-    return INTENTS.SET_PURCHASE_PRICE;
-  }
-
-  return INTENTS.UNKNOWN;
-}
-
-function extractScenarioData(message, intent, currentScenario = DEFAULT_SCENARIO) {
-  const text = normalizeText(message);
-  const updates = {};
-
-  if (intent === INTENTS.SET_LANGUAGE) {
-    if (/(english)/.test(text)) {
-      updates.language = "English";
-    } else if (/(spanish|espanol|español)/.test(text)) {
-      updates.language = "Spanish";
-    }
-  }
-
-  if (intent === INTENTS.START_PURCHASE) {
-    updates.purpose = "purchase";
-    updates.loanPurpose = "Purchase";
-  }
-
-  if (intent === INTENTS.START_REFINANCE) {
-    updates.purpose = "refinance";
-    updates.loanPurpose = "Refinance";
-  }
-
-  if (intent === INTENTS.START_EXPLORE) {
-    updates.purpose = currentScenario.purpose || "explore";
-    updates.loanPurpose = currentScenario.loanPurpose || "Explore";
-  }
-
-  if (intent === INTENTS.SET_OCCUPANCY) {
-    const occupancy = extractOccupancy(text);
-    if (occupancy) {
-      updates.occupancy = occupancy;
-      updates.propertyUse = occupancy;
-    }
-  }
-
-  if (intent === INTENTS.SET_LOCATION) {
-    const location = extractLocation(text);
-    if (location.zipCode) updates.zipCode = location.zipCode;
-    if (location.area) updates.area = location.area;
-    if (location.county) updates.county = location.county;
-    if (location.state) updates.state = location.state;
-  }
-
-  if (intent === INTENTS.SET_PROGRAM) {
-    const program = extractProgram(text);
-    if (program) {
-      updates.programPreference = program;
-      updates.loanType = program.toUpperCase();
-    }
-  }
-
-  if (intent === INTENTS.SET_CREDIT) {
-    const creditRange = extractCreditRange(text);
-    if (creditRange) {
-      updates.creditScoreRange = creditRange;
-      updates.creditScore = creditRange;
-    }
-  }
-
-  if (intent === INTENTS.SET_INCOME) {
-    const income = extractMonthlyIncome(text);
-    if (income !== null) {
-      updates.monthlyIncome = income;
-    }
-  }
-
-  if (intent === INTENTS.SET_DOWN_PAYMENT) {
-    const downPaymentInfo = extractDownPayment(text);
-    if (downPaymentInfo.downPayment !== null) {
-      updates.downPayment = downPaymentInfo.downPayment;
-    }
-    if (downPaymentInfo.downPaymentPercent !== null) {
-      updates.downPaymentPercent = downPaymentInfo.downPaymentPercent;
-    }
-  }
-
-  if (intent === INTENTS.SET_PURCHASE_PRICE) {
-    const purchasePrice = extractPurchasePrice(text);
-    if (purchasePrice !== null) {
-      updates.purchasePrice = purchasePrice;
-    }
-  }
-
-  return updates;
-}
-
-function mergeScenario(currentScenario, extractedData, intent) {
-  if (intent === INTENTS.RESET_SCENARIO) {
-    return { ...DEFAULT_SCENARIO };
-  }
-
-  const merged = {
-    ...currentScenario,
-    ...extractedData,
-    lastReviewed: false,
+  return {
+    language: '',
+    loanType: '',
+    loanPurpose: '',
+    term: '30-Year Fixed',
+    occupancy: '',
+    area: '',
+    zipCode: '',
+    purchasePrice: '',
+    appraisalValue: '',
+    downPaymentPercent: '',
+    downPaymentAmount: '',
+    loanAmount: '',
+    creditScore: '',
+    monthlyIncome: '',
   };
-
-  if (merged.purpose === "purchase" && !merged.loanPurpose) {
-    merged.loanPurpose = "Purchase";
-  }
-
-  if (merged.purpose === "refinance" && !merged.loanPurpose) {
-    merged.loanPurpose = "Refinance";
-  }
-
-  if (
-    merged.purchasePrice !== null &&
-    merged.downPayment !== null &&
-    merged.downPayment !== undefined
-  ) {
-    merged.loanAmount = Math.max(merged.purchasePrice - merged.downPayment, 0);
-  }
-
-  if (
-    merged.purchasePrice !== null &&
-    merged.downPaymentPercent !== null &&
-    merged.downPaymentPercent !== undefined &&
-    (merged.downPayment === null || merged.downPayment === undefined)
-  ) {
-    merged.downPayment = Math.round(merged.purchasePrice * (merged.downPaymentPercent / 100));
-    merged.loanAmount = Math.max(merged.purchasePrice - merged.downPayment, 0);
-  }
-
-  if (
-    merged.purchasePrice !== null &&
-    merged.downPayment !== null &&
-    merged.downPayment !== undefined &&
-    (merged.downPaymentPercent === null || merged.downPaymentPercent === undefined)
-  ) {
-    merged.downPaymentPercent = Number(
-      ((merged.downPayment / merged.purchasePrice) * 100).toFixed(2)
-    );
-  }
-
-  return merged;
 }
 
-function determineNextStage(scenario, intent) {
-  if (intent === INTENTS.RESET_SCENARIO) return STAGES.LANGUAGE;
-
-  if (!scenario.language) return STAGES.LANGUAGE;
-  if (!scenario.purpose || scenario.purpose === "explore") return STAGES.PURPOSE;
-  if (!scenario.occupancy) return STAGES.OCCUPANCY;
-  if (scenario.purpose === "purchase" && !scenario.purchasePrice) return STAGES.PRICE;
-
-  if (
-    scenario.purpose === "purchase" &&
-    scenario.downPayment === null &&
-    scenario.downPaymentPercent === null
-  ) {
-    return STAGES.DOWN_PAYMENT;
-  }
-
-  if (!scenario.creditScoreRange) return STAGES.CREDIT;
-  if (!scenario.monthlyIncome) return STAGES.INCOME;
-  if (!scenario.zipCode && !scenario.area) return STAGES.LOCATION;
-
-  return STAGES.REVIEW;
+export function getInitialPrompt() {
+  return "Hi, I'm Sally. I'll guide you step by step like a real loan officer would. You can reply in English or Español. Which language would you prefer?";
 }
 
-function buildResponse(intent, scenario, nextStage) {
-  if (intent === INTENTS.RESET_SCENARIO) {
-    return {
-      message: "Let’s start fresh. Would you like to continue in English or Spanish?",
-      scenario,
-      nextStage,
-      actions: {
-        updateScenarioPanel: true,
-        triggerPricing: false,
-        showReviewCard: false,
-      },
-    };
-  }
+export function applyManualFieldUpdate(currentScenario, field, rawValue) {
+  const next = { ...currentScenario };
 
-  if (intent === INTENTS.REJECT_REVIEW) {
-    return {
-      message:
-        "Got it. Tell me what you want to change, for example the price, down payment, credit, income, ZIP code, or loan program.",
-      scenario,
-      nextStage: STAGES.REVIEW,
-      actions: {
-        updateScenarioPanel: true,
-        triggerPricing: false,
-        showReviewCard: false,
-      },
-    };
-  }
+  switch (field) {
+    case 'language':
+      next.language = normalizeLanguage(rawValue) || String(rawValue || '').trim();
+      break;
 
-  if (intent === INTENTS.CONFIRM_REVIEW && isPricingReady(scenario)) {
-    return {
-      message:
-        "Perfect. I’m ready to show you rate options so you can see how the payment changes.",
-      scenario: {
-        ...scenario,
-        lastReviewed: true,
-      },
-      nextStage: STAGES.PRICING_READY,
-      actions: {
-        updateScenarioPanel: true,
-        triggerPricing: true,
-        showReviewCard: false,
-      },
-    };
-  }
+    case 'loanType':
+      next.loanType = normalizeLoanType(rawValue) || String(rawValue || '').trim();
+      break;
 
-  if (isPricingReady(scenario)) {
-    return {
-      message: buildReviewSummary(scenario),
-      scenario,
-      nextStage: STAGES.REVIEW,
-      actions: {
-        updateScenarioPanel: true,
-        triggerPricing: false,
-        showReviewCard: true,
-      },
-    };
-  }
+    case 'loanPurpose':
+      next.loanPurpose = normalizePurpose(rawValue) || String(rawValue || '').trim();
+      break;
 
-  switch (nextStage) {
-    case STAGES.LANGUAGE:
-      return {
-        message: "Would you like to continue in English or Spanish?",
-        scenario,
-        nextStage,
-        actions: {
-          updateScenarioPanel: true,
-          triggerPricing: false,
-          showReviewCard: false,
-        },
-      };
+    case 'occupancy':
+      next.occupancy = normalizeOccupancy(rawValue) || String(rawValue || '').trim();
+      break;
 
-    case STAGES.PURPOSE:
-      return {
-        message: "Are you looking to buy a home or refinance?",
-        scenario,
-        nextStage,
-        actions: {
-          updateScenarioPanel: true,
-          triggerPricing: false,
-          showReviewCard: false,
-        },
-      };
+    case 'term':
+      next.term = normalizeTerm(rawValue) || String(rawValue || '').trim();
+      break;
 
-    case STAGES.OCCUPANCY:
-      return {
-        message: "Will this be primary, investment, or second home?",
-        scenario,
-        nextStage,
-        actions: {
-          updateScenarioPanel: true,
-          triggerPricing: false,
-          showReviewCard: false,
-        },
-      };
+    case 'zipCode':
+      next.zipCode = parseZip(rawValue) || String(rawValue || '').trim();
+      break;
 
-    case STAGES.PRICE:
-      return {
-        message: "What price range are you looking at?",
-        scenario,
-        nextStage,
-        actions: {
-          updateScenarioPanel: true,
-          triggerPricing: false,
-          showReviewCard: false,
-        },
-      };
+    case 'area':
+      next.area = parseArea(rawValue, 'area') || String(rawValue || '').trim();
+      break;
 
-    case STAGES.DOWN_PAYMENT:
-      return {
-        message: "How much are you thinking of putting down?",
-        scenario,
-        nextStage,
-        actions: {
-          updateScenarioPanel: true,
-          triggerPricing: false,
-          showReviewCard: false,
-        },
-      };
+    case 'purchasePrice':
+      next.purchasePrice = parseMoney(rawValue);
+      break;
 
-    case STAGES.CREDIT:
-      return {
-        message: "What’s your estimated credit score?",
-        scenario,
-        nextStage,
-        actions: {
-          updateScenarioPanel: true,
-          triggerPricing: false,
-          showReviewCard: false,
-        },
-      };
+    case 'appraisalValue':
+      next.appraisalValue = parseMoney(rawValue);
+      break;
 
-    case STAGES.INCOME:
-      return {
-        message: "About how much do you make per month before taxes?",
-        scenario,
-        nextStage,
-        actions: {
-          updateScenarioPanel: true,
-          triggerPricing: false,
-          showReviewCard: false,
-        },
-      };
+    case 'downPaymentPercent':
+      next.downPaymentPercent = parseDownPayment(`${rawValue}%`, Number(next.purchasePrice) || 0)?.downPaymentPercent || '';
+      break;
 
-    case STAGES.LOCATION:
-      return {
-        message: "What ZIP code are you looking in?",
-        scenario,
-        nextStage,
-        actions: {
-          updateScenarioPanel: true,
-          triggerPricing: false,
-          showReviewCard: false,
-        },
-      };
+    case 'downPaymentAmount':
+      next.downPaymentAmount = parseMoney(rawValue);
+      break;
+
+    case 'loanAmount':
+      next.loanAmount = parseMoney(rawValue);
+      break;
+
+    case 'creditScore':
+      next.creditScore = normalizeCredit(rawValue);
+      break;
+
+    case 'monthlyIncome':
+      next.monthlyIncome = parseIncome(rawValue);
+      break;
 
     default:
+      next[field] = rawValue;
+      break;
+  }
+
+  return recalcScenario(next);
+}
+
+export function processSallyMessage(message, currentScenario = createEmptyScenario()) {
+  const intent = classifyIntent(message);
+  const scenario = recalcScenario({ ...currentScenario });
+  const currentStep = getNextMissingField(scenario);
+
+  if (intent.type === 'empty') {
+    return {
+      message: questionForField(currentStep || 'language'),
+      scenario,
+    };
+  }
+
+  if (intent.type === 'reset') {
+    const fresh = createEmptyScenario();
+    return {
+      message: getInitialPrompt(),
+      scenario: fresh,
+    };
+  }
+
+  if (intent.type === 'confirm_no') {
+    return {
+      message: 'No problem. Tell me what you would like to change and I will update it.',
+      scenario,
+    };
+  }
+
+  if (intent.type === 'confirm_yes') {
+    const nextMissing = getNextMissingField(scenario);
+
+    if (!nextMissing) {
       return {
-        message: "Tell me a little more.",
+        message: `Perfect. I now have a working scenario built for you. ${buildSummary(scenario)}`,
         scenario,
-        nextStage,
-        actions: {
-          updateScenarioPanel: true,
-          triggerPricing: false,
-          showReviewCard: false,
-        },
       };
-  }
-}
+    }
 
-function isPricingReady(scenario) {
-  return Boolean(
-    scenario.language &&
-      scenario.purpose === "purchase" &&
-      scenario.occupancy &&
-      scenario.purchasePrice &&
-      (scenario.downPayment !== null || scenario.downPaymentPercent !== null) &&
-      scenario.creditScoreRange &&
-      scenario.monthlyIncome &&
-      (scenario.zipCode || scenario.area)
-  );
-}
-
-function buildReviewSummary(scenario) {
-  const occupancyLabel = prettyOccupancy(scenario.occupancy);
-
-  return [
-    "Here’s what I’m seeing so far:",
-    `Language: ${scenario.language || "Not set"}`,
-    `Loan purpose: ${scenario.loanPurpose || "Not set"}`,
-    `Purchase price: ${formatCurrency(scenario.purchasePrice)}`,
-    `Down payment: ${formatCurrency(scenario.downPayment)}`,
-    `Loan amount: ${formatCurrency(scenario.loanAmount)}`,
-    `Property use: ${occupancyLabel}`,
-    `Estimated credit: ${scenario.creditScoreRange || "Not set"}`,
-    `Monthly income: ${formatCurrency(scenario.monthlyIncome)}`,
-    `ZIP code: ${scenario.zipCode || "Not set"}`,
-    "",
-    "Does that look right?",
-  ].join("\n");
-}
-
-function normalizeText(text) {
-  return String(text || "")
-    .toLowerCase()
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function containsZipCode(text) {
-  return /\b\d{5}\b/.test(text);
-}
-
-function containsMoneyWords(text) {
-  return /(down|put down|price|purchase price|home price|income|salary|month|credit|score)/.test(text);
-}
-
-function looksLikePriceAnswer(text) {
-  if (!containsNumericValue(text)) return false;
-  if (/^\d{5}$/.test(text)) return false;
-  if (/(down|put down|credit|score|income|zip|zipcode|fha|conventional|va|english|spanish)/.test(text)) {
-    return false;
-  }
-  return true;
-}
-
-function containsNumericValue(text) {
-  return /\$?\d[\d,]*(\.\d+)?\s?(k)?\b/.test(text);
-}
-
-function extractOccupancy(text) {
-  if (/(primary|primary residence|owner occupied|live in it)/.test(text)) return "primary";
-  if (/(investment|investment property|rental|investor)/.test(text)) return "investment";
-  if (/(second home|vacation home|second)/.test(text)) return "second_home";
-  return "";
-}
-
-function extractProgram(text) {
-  if (/\bfha\b/.test(text)) return "fha";
-  if (/\bconventional\b/.test(text)) return "conventional";
-  if (/\bva\b/.test(text)) return "va";
-  if (/\busda\b/.test(text)) return "usda";
-  return "";
-}
-
-function extractCreditRange(text) {
-  const scoreMatch = text.match(/\b(5\d{2}|6\d{2}|7\d{2}|8\d{2})\b/);
-  if (scoreMatch) {
-    const score = Number(scoreMatch[1]);
-    if (score >= 760) return "760+";
-    if (score >= 720) return "720-759";
-    if (score >= 680) return "680-719";
-    if (score >= 620) return "620-679";
-    return "below_620";
+    return {
+      message: questionForField(nextMissing),
+      scenario,
+    };
   }
 
-  if (/(excellent|great)/.test(text)) return "760+";
-  if (/(good)/.test(text)) return "720-759";
-  if (/(fair)/.test(text)) return "680-719";
-  if (/(poor|bad)/.test(text)) return "below_620";
-  return "";
-}
+  const extracted = extractScenarioUpdates(message, scenario, currentStep);
+  const nextScenario = extracted.scenario;
+  const nextMissing = getNextMissingField(nextScenario);
 
-function extractMonthlyIncome(text) {
-  if (!/(income|make|salary|monthly|per month|before taxes|a month)/.test(text)) return null;
-  const values = extractMoneyValues(text);
-  return values.length ? values[0] : null;
-}
+  if (!extracted.changed) {
+    return {
+      message: questionForField(currentStep || 'language'),
+      scenario: nextScenario,
+    };
+  }
 
-function extractDownPayment(text) {
-  const result = {
-    downPayment: null,
-    downPaymentPercent: null,
+  if (!nextMissing) {
+    return {
+      message: `Here is what I am seeing so far: ${buildSummary(nextScenario)}. Does that look right?`,
+      scenario: nextScenario,
+    };
+  }
+
+  return {
+    message: questionForField(nextMissing),
+    scenario: nextScenario,
   };
-
-  const percentMatch = text.match(/\b(\d{1,2}(\.\d+)?)\s?%/);
-  if (percentMatch) {
-    result.downPaymentPercent = Number(percentMatch[1]);
-  }
-
-  const values = extractMoneyValues(text);
-  if (values.length) {
-    result.downPayment = values[0];
-  }
-
-  return result;
-}
-
-function extractPurchasePrice(text) {
-  if (/^\d{5}$/.test(text)) return null;
-
-  const rangeMatch = text.match(/between\s+\$?([\d,]+k?)\s+(and|to)\s+\$?([\d,]+k?)/);
-  if (rangeMatch) {
-    const low = parseMoneyToken(rangeMatch[1]);
-    const high = parseMoneyToken(rangeMatch[3]);
-    if (low && high) return Math.round((low + high) / 2);
-  }
-
-  const values = extractMoneyValues(text);
-  return values.length ? values[0] : null;
-}
-
-function extractLocation(text) {
-  const result = {
-    zipCode: "",
-    area: "",
-    county: "",
-    state: "",
-  };
-
-  const zipMatch = text.match(/\b\d{5}\b/);
-  if (zipMatch) {
-    result.zipCode = zipMatch[0];
-  }
-
-  return result;
-}
-
-function extractMoneyValues(text) {
-  const matches = text.match(/\$?\d[\d,]*(\.\d{1,2})?\s?k?/g) || [];
-  return matches.map(parseMoneyToken).filter((value) => value !== null);
-}
-
-function parseMoneyToken(value) {
-  if (!value) return null;
-
-  const cleaned = String(value)
-    .toLowerCase()
-    .replace(/\$/g, "")
-    .replace(/,/g, "")
-    .trim();
-
-  if (cleaned.endsWith("k")) {
-    const num = Number(cleaned.slice(0, -1));
-    return Number.isFinite(num) ? num * 1000 : null;
-  }
-
-  const num = Number(cleaned);
-  return Number.isFinite(num) ? num : null;
-}
-
-function formatCurrency(value) {
-  if (value === null || value === undefined || value === "") return "N/A";
-
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 0,
-  }).format(value);
-}
-
-function prettyOccupancy(value) {
-  if (value === "primary") return "Primary residence";
-  if (value === "investment") return "Investment property";
-  if (value === "second_home") return "Second home";
-  return value || "Not set";
 }

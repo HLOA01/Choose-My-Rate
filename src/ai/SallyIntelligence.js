@@ -258,7 +258,6 @@ function parsePriceRange(message = '') {
 
 function parseArea(message = '', currentStep = '') {
   const raw = String(message).trim();
-  const text = normalizeText(raw);
 
   const countyMatch = raw.match(/([A-Za-z\s]+County)/i);
   if (countyMatch) return toTitleCase(countyMatch[1]);

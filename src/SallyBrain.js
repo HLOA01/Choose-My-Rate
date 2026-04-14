@@ -19,10 +19,6 @@ function toNumber(value) {
   return Number.isFinite(numeric) ? numeric : 0;
 }
 
-function cleanNumber(value) {
-  return String(value || "").replace(/[^0-9.]/g, "");
-}
-
 function createScenarioCopy(currentScenario = DEFAULT_SCENARIO) {
   return { ...DEFAULT_SCENARIO, ...currentScenario };
 }

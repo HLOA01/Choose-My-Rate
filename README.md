@@ -43,6 +43,22 @@ Amplify will serve the `dist` folder after every successful build.
 
 ## Environment Variables
 
-This is currently a frontend-only app. Do not add private API keys, including `OPENAI_API_KEY`, to Vite environment variables because they are bundled into browser code.
+Do not add private API keys, including `OPENAI_API_KEY`, to Vite environment variables because they are bundled into browser code.
 
-If Sally needs live AI responses later, use an AWS Lambda behind API Gateway and store the private key in AWS Secrets Manager or Lambda environment variables. The frontend should call that Lambda endpoint instead of calling OpenAI directly.
+The browser calls the public Sally API endpoint through:
+
+```bash
+VITE_SALLY_API_URL=https://aspy7gkhu0.execute-api.us-east-1.amazonaws.com
+```
+
+That endpoint is backed by AWS Lambda. Add the OpenAI key to Lambda, not to the frontend:
+
+```bash
+aws lambda update-function-configuration \
+  --profile choose-my-rate \
+  --region us-east-1 \
+  --function-name choose-my-rate-sally-openai \
+  --environment "Variables={OPENAI_API_KEY=your_openai_api_key,OPENAI_MODEL=gpt-4o-mini,ALLOWED_ORIGIN=*}"
+```
+
+After that, Sally will use OpenAI for chat responses. Without the key, the frontend falls back to the local rule-based Sally brain.

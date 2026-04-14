@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
 import { createEmptyScenario, processSallyMessage } from "./SallyBrain";
+import { askSallyApi, hasSallyApi } from "./sallyApi";
 
 const INITIAL_PROMPT =
   "Hi, I’m Sally. I can help you build your loan scenario and guide you step by step. Are you looking to buy a home, refinance, or take cash out?";
@@ -236,6 +237,7 @@ const [scenario, setScenario] = useState(() => ({
   const [input, setInput] = useState("");
   const [isListening, setIsListening] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const [isThinking, setIsThinking] = useState(false);
   const [voiceEnabled, setVoiceEnabled] = useState(true);
   const [speechSupported, setSpeechSupported] = useState(false);
 
@@ -351,16 +353,33 @@ const [scenario, setScenario] = useState(() => ({
   return scenarioCopy;
 };
 
-  const sendMessage = (rawInput = input) => {
+  const sendMessage = async (rawInput = input) => {
     const userText = String(rawInput || "").trim();
-    if (!userText) return;
+    if (!userText || isThinking) return;
 
-    const result = processSallyMessage(userText, scenario);
+    const localResult = processSallyMessage(userText, scenario);
 
     setLastAnswer(userText);
+    setInput("");
+    setIsThinking(true);
+
+    let result = localResult;
+
+    if (hasSallyApi()) {
+      try {
+        result = await askSallyApi({
+          message: userText,
+          scenario,
+          localResult,
+        });
+      } catch (error) {
+        console.warn("Sally API fallback:", error);
+      }
+    }
+
     setPrompt(result.message);
     setScenario((prev) => normalizeScenarioAfterBrain({ ...prev, ...result.scenario }));
-    setInput("");
+    setIsThinking(false);
 
     if (voiceEnabled) {
       speak(result.message);
@@ -476,9 +495,11 @@ const [scenario, setScenario] = useState(() => ({
             </div>
           </div>
 
-          <div className="question-stream">
-            <div className="mini-label">Current question</div>
-            <div className="question-text retro-text">{prompt}</div>
+            <div className="question-stream">
+              <div className="mini-label">Current question</div>
+            <div className="question-text retro-text">
+              {isThinking ? "Sally is thinking..." : prompt}
+            </div>
 
             <div className="latest-answer-inline">
               <span className="mini-label">Latest answer</span>
@@ -496,7 +517,7 @@ const [scenario, setScenario] = useState(() => ({
               placeholder="Answer Sally here..."
             />
             <button type="button" className="primary-cta" onClick={() => sendMessage()}>
-              Start My Application
+              {isThinking ? "Thinking..." : "Start My Application"}
             </button>
           </div>
         </section>

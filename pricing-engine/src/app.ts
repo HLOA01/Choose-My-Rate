@@ -5,6 +5,9 @@ import { env } from "./config/env.js";
 import { adminRouter } from "./api/routes/admin.js";
 import { healthRouter } from "./api/routes/health.js";
 import { pricingRouter } from "./api/routes/pricing.js";
+import { pool } from "./db/repositories/db.js";
+import { runMigrations } from "./db/migrate.js";
+import { refreshPrmgRates } from "./jobs/refreshPrmgRates.js";
 import { startScheduler } from "./jobs/scheduler.js";
 import { logger } from "./utils/logger.js";
 
@@ -35,7 +38,26 @@ app.use((error: unknown, _req: express.Request, res: express.Response, _next: ex
   });
 });
 
-app.listen(env.PORT, () => {
-  logger.info("Pricing engine listening.", { port: env.PORT });
-  startScheduler();
+async function start() {
+  if (env.RUN_MIGRATIONS_ON_START) {
+    await runMigrations(pool);
+  }
+
+  app.listen(env.PORT, () => {
+    logger.info("Pricing engine listening.", { port: env.PORT });
+    startScheduler();
+
+    if (env.RUN_REFRESH_ON_START) {
+      void refreshPrmgRates().then((result) => {
+        logger.info("Startup PRMG refresh complete.", { ...result });
+      });
+    }
+  });
+}
+
+start().catch((error) => {
+  logger.error("Pricing engine failed to start.", {
+    error: error instanceof Error ? error.message : String(error),
+  });
+  process.exit(1);
 });

@@ -54,6 +54,8 @@ PRMG_RATE_SHEET_URL=http://www.eprmg.net/campaigner/WHLS-1000.xls
 REFRESH_CRON=*/15 * * * *
 ADMIN_API_KEY=change-me
 ENABLE_SCHEDULER=true
+RUN_MIGRATIONS_ON_START=false
+RUN_REFRESH_ON_START=false
 ```
 
 ## Database
@@ -100,6 +102,7 @@ The URL is static, but file contents are dynamic. The connector treats this as a
 
 The parser is intentionally tolerant in v1:
 
+- handles PRMG matrix-style rate/price grids
 - scans worksheets for a header-like row
 - accepts common column names such as product/program, rate, price, lock
 - ignores marketing/section rows

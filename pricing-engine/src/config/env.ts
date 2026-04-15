@@ -17,6 +17,14 @@ const envSchema = z.object({
     .string()
     .default("true")
     .transform((value) => value.toLowerCase() === "true"),
+  RUN_MIGRATIONS_ON_START: z
+    .string()
+    .default("false")
+    .transform((value) => value.toLowerCase() === "true"),
+  RUN_REFRESH_ON_START: z
+    .string()
+    .default("false")
+    .transform((value) => value.toLowerCase() === "true"),
 });
 
 export const env = envSchema.parse(process.env);

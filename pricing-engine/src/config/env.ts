@@ -25,6 +25,14 @@ const envSchema = z.object({
     .string()
     .default("false")
     .transform((value) => value.toLowerCase() === "true"),
+  DATABASE_SSL: z
+    .string()
+    .default("false")
+    .transform((value) => value.toLowerCase() === "true"),
+  DATABASE_SSL_REJECT_UNAUTHORIZED: z
+    .string()
+    .default("true")
+    .transform((value) => value.toLowerCase() === "true"),
 });
 
 export const env = envSchema.parse(process.env);

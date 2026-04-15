@@ -4,6 +4,11 @@ import { env } from "../../config/env.js";
 export const pool = new pg.Pool({
   connectionString: env.DATABASE_URL,
   max: 10,
+  ssl: env.DATABASE_SSL
+    ? {
+        rejectUnauthorized: env.DATABASE_SSL_REJECT_UNAUTHORIZED,
+      }
+    : undefined,
 });
 
 export type DbClient = pg.PoolClient | pg.Pool;

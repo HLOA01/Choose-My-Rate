@@ -79,6 +79,8 @@ export function normalizePrmgData(rows: ParsedWorkbookRow[]): NormalizedPricingR
     // PRMG matrix sheets commonly store note rates as decimals (0.07125).
     // The pricing engine API uses percent notation (7.125) for consistency.
     const normalizedRate = round(rate > 0 && rate <= 1 ? rate * 100 : rate);
+    if (normalizedRate < 1 || normalizedRate > 20) return;
+
     const termMonths = inferTermMonths(productName, pick(object, ["term", "term_months"]));
     const loanType = inferLoanType(productName);
 

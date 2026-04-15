@@ -21,6 +21,9 @@ import { normalizePrmgData } from "../connectors/prmg/normalizePrmgData.js";
 import { parsePrmgWorkbook } from "../connectors/prmg/parsePrmgWorkbook.js";
 import { validatePrmgData } from "../connectors/prmg/validatePrmgData.js";
 import { logger } from "../utils/logger.js";
+import { createHash } from "node:crypto";
+
+const PRMG_TRANSFORM_VERSION = "prmg-normalizer-v2";
 
 export interface RefreshResult {
   status: "published" | "skipped" | "failed" | "locked";
@@ -51,9 +54,16 @@ export async function refreshPrmgRates(): Promise<RefreshResult> {
     });
 
     const fetched = await fetchPrmgRateSheet();
+    // The source URL is static, but our parser/normalizer can improve over
+    // time. Version the stored hash with the transform version so a parser fix
+    // can publish a cleaner snapshot even when PRMG's XLS bytes are unchanged.
+    const versionedSourceHash = createHash("sha256")
+      .update(fetched.sourceHash)
+      .update(PRMG_TRANSFORM_VERSION)
+      .digest("hex");
     const lastHash = await getLastSuccessfulSourceHash(pool, "PRMG");
 
-    if (lastHash && lastHash === fetched.sourceHash) {
+    if (lastHash && lastHash === versionedSourceHash) {
       await completeRefreshLog(pool, {
         id: logId,
         status: "skipped",
@@ -74,7 +84,7 @@ export async function refreshPrmgRates(): Promise<RefreshResult> {
       const version = await createPricingVersion(client, {
         lenderCode: "PRMG",
         sourceUrl: fetched.sourceUrl,
-        sourceHash: fetched.sourceHash,
+        sourceHash: versionedSourceHash,
         sourceTimestamp: fetched.sourceTimestamp,
         refreshStartedAt: startedAt,
         status: "staging",

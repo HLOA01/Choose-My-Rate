@@ -12,6 +12,7 @@ export function filterEligiblePrograms(rows: PricingRow[], scenario: PricingScen
 
     if (row.loanType === "unknown") return false;
     if (row.termMonths <= 0) return false;
+    if (row.lockDays !== 30) return false;
 
     if (scenario.loanPurpose === "cash_out" && row.loanType === "usda") {
       return false;

@@ -53,29 +53,29 @@ export function rankBestExecution(rows: PricingRow[], scenario: PricingScenario)
     };
   });
 
-  const lowestPayment = [...candidates].sort((a, b) => a.paymentPITI - b.paymentPITI)[0];
-  const lowestCost = [...candidates].sort((a, b) => a.cashToClose - b.cashToClose)[0];
-  const blended = [...candidates].sort((a, b) => a.blendedScore - b.blendedScore)[0];
+  const lowestRate = [...candidates].sort((a, b) => a.row.rate - b.row.rate)[0];
+  const noPoints = [...candidates].sort((a, b) => Math.abs(a.row.price) - Math.abs(b.row.price))[0];
+  const highestCredit = [...candidates].sort((a, b) => a.row.price - b.row.price)[0];
 
   const selected = new Map<string, { row: PricingRow; tags: string[] }>();
 
-  if (lowestPayment) {
-    selected.set(lowestPayment.row.id, { row: lowestPayment.row, tags: ["Lowest Payment"] });
+  for (const candidate of candidates) {
+    selected.set(candidate.row.id, { row: candidate.row, tags: [] });
   }
 
-  if (lowestCost) {
-    const existing = selected.get(lowestCost.row.id);
-    if (existing) existing.tags.push("Lowest Cost");
-    else selected.set(lowestCost.row.id, { row: lowestCost.row, tags: ["Lowest Cost"] });
+  if (lowestRate) {
+    selected.get(lowestRate.row.id)?.tags.push("Lowest Payment");
   }
 
-  if (blended) {
-    const existing = selected.get(blended.row.id);
-    if (existing) existing.tags.push("Best Blend");
-    else selected.set(blended.row.id, { row: blended.row, tags: ["Best Blend"] });
+  if (noPoints) {
+    selected.get(noPoints.row.id)?.tags.push("No Points");
+  }
+
+  if (highestCredit && highestCredit.row.price < 0) {
+    selected.get(highestCredit.row.id)?.tags.push("Highest Credit");
   }
 
   return [...selected.values()]
-    .slice(0, 3)
+    .sort((a, b) => a.row.rate - b.row.rate || a.row.price - b.row.price)
     .map((selection) => toOption(selection.row, scenario, selection.tags));
 }

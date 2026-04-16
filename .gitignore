@@ -10,6 +10,7 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+dist-amplify*.zip
 *.local
 
 # Editor directories and files

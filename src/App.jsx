@@ -286,6 +286,15 @@ function formatPointsCreditLabel(value) {
   return "No Points";
 }
 
+function formatCostCreditDollars(pointsPct, pointsDollars) {
+  const pct = Number(pointsPct || 0);
+  const dollars = Math.abs(Number(pointsDollars || 0));
+
+  if (pct > 0) return `Cost: ${formatCurrency(dollars)}`;
+  if (pct < 0) return `Credit: ${formatCurrency(dollars)}`;
+  return "No Cost (Par)";
+}
+
 function playSoftClick() {
   const AudioContext = window.AudioContext || window.webkitAudioContext;
   if (!AudioContext) return;
@@ -1026,9 +1035,11 @@ const [scenario, setScenario] = useState(() => ({
                 </small>
               </div>
               <div className="pricing-detail-card">
-                <span>Estimated Cash to Close</span>
-                <strong>{formatCurrency(pricingPausedMessage ? "" : pricing.estimatedCashToClose)}</strong>
-                <small>30-day lock pricing</small>
+                <span>Cost / Credit</span>
+                <strong className={pricing.pointsPct < 0 ? "credit-text" : pricing.pointsPct > 0 ? "cost-text" : ""}>
+                  {pricingPausedMessage ? "Unavailable" : formatCostCreditDollars(pricing.pointsPct, pricing.pointsDollars)}
+                </strong>
+                <small>Rate pricing impact</small>
               </div>
             </div>
 

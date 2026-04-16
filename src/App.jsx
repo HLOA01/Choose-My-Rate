@@ -274,7 +274,41 @@ function adaptPricingOptionToPanel(option, scenario, fallbackPricing) {
     total: total || fallbackPricing.total,
     program: option.program,
     tags: Array.isArray(option.tags) ? option.tags : [],
+    estimatedCashToClose: option.estimatedCashToClose,
   };
+}
+
+function formatPointsCreditLabel(value) {
+  const numeric = Number(value || 0);
+
+  if (numeric < 0) return `${formatPercent(Math.abs(numeric))} Credit`;
+  if (numeric > 0) return `${formatPercent(numeric)} Cost`;
+  return "No Points";
+}
+
+function playSoftClick() {
+  const AudioContext = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContext) return;
+
+  try {
+    const context = new AudioContext();
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+
+    oscillator.type = "sine";
+    oscillator.frequency.value = 620;
+    gain.gain.setValueAtTime(0.0001, context.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.04, context.currentTime + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.055);
+
+    oscillator.connect(gain);
+    gain.connect(context.destination);
+    oscillator.start();
+    oscillator.stop(context.currentTime + 0.06);
+    oscillator.onended = () => context.close();
+  } catch (error) {
+    console.warn("Rate click sound unavailable:", error);
+  }
 }
 
 const RATE_GUIDANCE_COPY = {
@@ -388,6 +422,7 @@ const [scenario, setScenario] = useState(() => ({
   const [pricingError, setPricingError] = useState("");
   const [isPricingLoading, setIsPricingLoading] = useState(false);
   const [selectedOptionId, setSelectedOptionId] = useState("");
+  const [rateGuidanceMessage, setRateGuidanceMessage] = useState("");
   const [chatMode, setChatMode] = useState(() => {
     const savedMode = window.localStorage?.getItem(CHAT_MODE_STORAGE_KEY);
     return savedMode === "rules" ? "rules" : "ai";
@@ -396,6 +431,7 @@ const [scenario, setScenario] = useState(() => ({
   const recognitionRef = useRef(null);
   const previousPricingSelectionRef = useRef(null);
   const suppressNextPricingGuidanceRef = useRef(false);
+  const rateWheelLastMoveRef = useRef(0);
   const pricingGuidanceMoveCountRef = useRef(0);
   const pricingGuidanceRotationRef = useRef({
     lower_rate: 0,
@@ -458,6 +494,18 @@ const [scenario, setScenario] = useState(() => ({
       ? pricingQuote.message || "Online pricing is temporarily unavailable."
       : "";
   const selectedOptionPosition = livePricingOptions.length ? selectedLiveOptionIndex + 1 : 0;
+  const visibleRateOptions = useMemo(() => {
+    if (!livePricingOptions.length) return [];
+
+    return [-3, -2, -1, 0, 1, 2, 3].map((distance) => {
+      const absoluteIndex = selectedLiveOptionIndex + distance;
+      return {
+        option: livePricingOptions[absoluteIndex] || null,
+        absoluteIndex,
+        distance,
+      };
+    });
+  }, [livePricingOptions, selectedLiveOptionIndex]);
 
   const scenarioFields = useMemo(() => getScenarioFields(enrichedScenario), [enrichedScenario]);
 
@@ -465,6 +513,7 @@ const [scenario, setScenario] = useState(() => ({
     if (!hasPricingApi()) {
       setPricingQuote(null);
       setPricingError("Pricing API is not configured. Showing estimate.");
+      setRateGuidanceMessage("");
       previousPricingSelectionRef.current = null;
       return;
     }
@@ -475,6 +524,7 @@ const [scenario, setScenario] = useState(() => ({
       setPricingQuote(null);
       setPricingError("Add loan amount and credit score to get live pricing.");
       setIsPricingLoading(false);
+      setRateGuidanceMessage("");
       previousPricingSelectionRef.current = null;
       return;
     }
@@ -487,6 +537,9 @@ const [scenario, setScenario] = useState(() => ({
       .then((quote) => {
         suppressNextPricingGuidanceRef.current = true;
         setPricingQuote(quote);
+        setRateGuidanceMessage(
+          "Use the rate wheel or the table to compare real 30-day lock pricing options. Sally will help explain the tradeoff as you move."
+        );
         setSelectedOptionId((current) => {
           const options = Array.isArray(quote.options) ? quote.options : [];
           if (options.some((option) => option.optionId === current)) return current;
@@ -498,6 +551,7 @@ const [scenario, setScenario] = useState(() => ({
         console.warn("Pricing API fallback:", error);
         setPricingQuote(null);
         setPricingError("Live pricing is unavailable. Showing estimate.");
+        setRateGuidanceMessage("");
         previousPricingSelectionRef.current = null;
       })
       .finally(() => {
@@ -572,6 +626,37 @@ const [scenario, setScenario] = useState(() => ({
     recognitionRef.current.start();
   };
 
+  const selectLiveOption = (option, { sound = true } = {}) => {
+    if (!option) return;
+    if (option.optionId === selectedOptionId) return;
+
+    setSelectedOptionId(option.optionId);
+
+    if (sound) {
+      playSoftClick();
+    }
+  };
+
+  const moveRateWheel = (direction) => {
+    const nextIndex = Math.min(
+      Math.max(selectedLiveOptionIndex + direction, 0),
+      livePricingOptions.length - 1
+    );
+    selectLiveOption(livePricingOptions[nextIndex]);
+  };
+
+  const handleRateWheel = (event) => {
+    if (!livePricingOptions.length) return;
+    event.preventDefault();
+
+    const now = Date.now();
+    if (now - rateWheelLastMoveRef.current < 160) return;
+
+    rateWheelLastMoveRef.current = now;
+    const direction = event.deltaY + event.deltaX > 0 ? 1 : -1;
+    moveRateWheel(direction);
+  };
+
   useEffect(() => {
     if (!selectedLiveOption || pricingPausedMessage) return;
 
@@ -595,6 +680,7 @@ const [scenario, setScenario] = useState(() => ({
 
     pricingGuidanceRotationRef.current = nextCounts;
     previousPricingSelectionRef.current = selectedLiveOption;
+    setRateGuidanceMessage(message);
     setPrompt(message);
 
     if (voiceEnabled) {
@@ -823,10 +909,19 @@ const [scenario, setScenario] = useState(() => ({
             <div className="panel-header pricing-header">
               <div>
                 <h2 className="panel-title pricing-title-white">Pricing Engine</h2>
-                <div className="pricing-status-line">{pricingStatusText}</div>
+                <div className="pricing-status-line">Live pricing based on a 30-day lock</div>
               </div>
+              <button
+                type="button"
+                className="pricing-info"
+                title="This rate is not locked yet. A rate only becomes secured after a full application, property address, and confirmed lock with the lender."
+                aria-label="Rate lock information"
+              >
+                i
+              </button>
             </div>
 
+            <div className="pricing-status-note">{pricingStatusText}</div>
             {pricingQuote?.banner ? <div className="pricing-banner">{pricingQuote.banner}</div> : null}
             {pricingPausedMessage ? <div className="pricing-paused">{pricingPausedMessage}</div> : null}
 
@@ -852,64 +947,91 @@ const [scenario, setScenario] = useState(() => ({
               </div>
             </div>
 
-            <div className="rate-row">
-              <div className="rate-card strong-card">
-                <div className="rate-card-label">Selected Rate</div>
-                <div className="rate-card-value">{formatPercent(pricingPausedMessage ? "" : pricing.rate)}</div>
-                {livePricingOptions.length > 0 ? (
-                  <div className="rate-option-count">
-                    Option {selectedOptionPosition} of {livePricingOptions.length}
-                  </div>
-                ) : null}
-
-                <div className="rate-slider-wrap">
-                  <input
-                    type="range"
-                    min={enginePricing ? 0 : Math.max(2, baseRate - 1.5)}
-                    max={enginePricing ? Math.max(livePricingOptions.length - 1, 0) : baseRate + 1.5}
-                    step={enginePricing ? 1 : 0.125}
-                    value={enginePricing ? selectedLiveOptionIndex : selectedRate}
-                    onChange={(e) => {
-                      if (enginePricing) {
-                        const option = livePricingOptions[Number(e.target.value)];
-                        if (option) setSelectedOptionId(option.optionId);
-                        return;
-                      }
-                      setSelectedRate(Number(e.target.value));
-                    }}
-                    className="rate-slider"
-                    disabled={Boolean(pricingPausedMessage || (enginePricing && livePricingOptions.length < 2))}
-                  />
-                  <div className="slider-range-labels">
-                    {enginePricing ? (
-                      <>
-                        <span>{formatPercent(livePricingOptions[0]?.rate)}</span>
-                        <span>{formatPercent(pricing.rate)}</span>
-                        <span>{formatPercent(livePricingOptions[livePricingOptions.length - 1]?.rate)}</span>
-                      </>
-                    ) : (
-                      <>
-                        <span>{formatPercent(Math.max(2, baseRate - 1.5))}</span>
-                        <span>{formatPercent(baseRate)}</span>
-                        <span>{formatPercent(baseRate + 1.5)}</span>
-                      </>
+            {enginePricing && livePricingOptions.length > 0 ? (
+              <div className="rate-wheel-section">
+                <div className="rate-wheel-shell">
+                  <button
+                    type="button"
+                    className="wheel-nav"
+                    onClick={() => selectLiveOption(livePricingOptions[selectedLiveOptionIndex - 1])}
+                    disabled={selectedLiveOptionIndex <= 0}
+                    aria-label="Previous rate"
+                  >
+                    &lsaquo;
+                  </button>
+                  <div className="rate-wheel" aria-label="Rate selector" onWheel={handleRateWheel}>
+                    {visibleRateOptions.map(({ option, absoluteIndex, distance }) =>
+                      option ? (
+                        <button
+                          key={option.optionId}
+                          type="button"
+                          className={`rate-wheel-item ${distance === 0 ? "selected" : ""}`}
+                          style={{
+                            "--distance": Math.abs(distance),
+                          }}
+                          onClick={() => selectLiveOption(option)}
+                          aria-label={`Select rate ${formatPercent(option.rate)}`}
+                        >
+                          <span>{formatPercent(option.rate)}</span>
+                          <small>{formatPointsCreditLabel(option.price)}</small>
+                        </button>
+                      ) : (
+                        <div
+                          key={`empty-${absoluteIndex}`}
+                          className="rate-wheel-item placeholder"
+                          aria-hidden="true"
+                          style={{
+                            "--distance": Math.abs(distance),
+                          }}
+                        />
+                      )
                     )}
                   </div>
+                  <button
+                    type="button"
+                    className="wheel-nav"
+                    onClick={() => selectLiveOption(livePricingOptions[selectedLiveOptionIndex + 1])}
+                    disabled={selectedLiveOptionIndex >= livePricingOptions.length - 1}
+                    aria-label="Next rate"
+                  >
+                    &rsaquo;
+                  </button>
+                </div>
+                <div className="rate-option-count">
+                  Option {selectedOptionPosition} of {livePricingOptions.length}
                 </div>
               </div>
-
-              <div className="rate-card">
-                <div className="rate-card-label">Points / Credit</div>
-                <div className={`points-pct ${pricing.pointsPct > 0 ? "cost-text" : pricing.pointsPct < 0 ? "credit-text" : ""}`}>
-                  {pricingPausedMessage
-                    ? "Paused"
-                    : pricing.pointsPct > 0
-                    ? `${formatPercent(pricing.pointsPct)} Cost`
-                    : pricing.pointsPct < 0
-                    ? `${formatPercent(Math.abs(pricing.pointsPct))} Credit`
-                    : "Par"}
+            ) : (
+              <div className="rate-slider-wrap fallback-rate-slider">
+                <input
+                  type="range"
+                  min={Math.max(2, baseRate - 1.5)}
+                  max={baseRate + 1.5}
+                  step="0.125"
+                  value={selectedRate}
+                  onChange={(e) => setSelectedRate(Number(e.target.value))}
+                  className="rate-slider"
+                  disabled={Boolean(pricingPausedMessage)}
+                />
+                <div className="slider-range-labels">
+                  <span>{formatPercent(Math.max(2, baseRate - 1.5))}</span>
+                  <span>{formatPercent(baseRate)}</span>
+                  <span>{formatPercent(baseRate + 1.5)}</span>
                 </div>
-                <div className={`points-dollars ${pricing.pointsPct > 0 ? "cost-text" : pricing.pointsPct < 0 ? "credit-text" : ""}`}>
+              </div>
+            )}
+
+            <div className="pricing-detail-grid">
+              <div className="pricing-detail-card">
+                <span>Selected Rate</span>
+                <strong>{formatPercent(pricingPausedMessage ? "" : pricing.rate)}</strong>
+              </div>
+              <div className="pricing-detail-card">
+                <span>Points / Credit</span>
+                <strong className={pricing.pointsPct < 0 ? "credit-text" : pricing.pointsPct > 0 ? "cost-text" : ""}>
+                  {pricingPausedMessage ? "Paused" : formatPointsCreditLabel(pricing.pointsPct)}
+                </strong>
+                <small>
                   {pricingPausedMessage
                     ? "Unavailable"
                     : pricing.pointsPct > 0
@@ -917,9 +1039,21 @@ const [scenario, setScenario] = useState(() => ({
                     : pricing.pointsPct < 0
                     ? `+${formatCurrency(Math.abs(pricing.pointsDollars))}`
                     : "No charge"}
-                </div>
+                </small>
+              </div>
+              <div className="pricing-detail-card">
+                <span>Estimated Cash to Close</span>
+                <strong>{formatCurrency(pricingPausedMessage ? "" : pricing.estimatedCashToClose)}</strong>
+                <small>30-day lock pricing</small>
               </div>
             </div>
+
+            {rateGuidanceMessage ? (
+              <div className="sally-rate-guidance">
+                <strong>Sally says</strong>
+                <span>{rateGuidanceMessage}</span>
+              </div>
+            ) : null}
 
             <button type="button" className="closing-costs-link">
               Want to see estimated closing costs?
@@ -934,27 +1068,23 @@ const [scenario, setScenario] = useState(() => ({
                 <div className="pricing-table" role="table" aria-label="Available pricing options">
                   <div className="pricing-table-row pricing-table-head" role="row">
                     <span>Rate</span>
-                    <span>Points / Credit</span>
                     <span>Payment</span>
-                    <span>Tags</span>
+                    <span>Points/Credit</span>
+                    <span>Note</span>
                   </div>
                   {livePricingOptions.map((option) => (
                     <button
                       key={option.optionId}
                       type="button"
                       className={`pricing-table-row ${selectedLiveOption?.optionId === option.optionId ? "active" : ""}`}
-                      onClick={() => setSelectedOptionId(option.optionId)}
+                      onClick={() => selectLiveOption(option)}
                       role="row"
                     >
                       <span>{formatPercent(option.rate)}</span>
-                      <span className={option.price < 0 ? "credit-text" : option.price > 0 ? "cost-text" : ""}>
-                        {option.price < 0
-                          ? `${formatPercent(Math.abs(option.price))} Credit`
-                          : option.price > 0
-                          ? `${formatPercent(option.price)} Cost`
-                          : "No Points"}
-                      </span>
                       <span>{formatCurrency(option.paymentPITI)}</span>
+                      <span className={option.price < 0 ? "credit-text" : option.price > 0 ? "cost-text" : ""}>
+                        {formatPointsCreditLabel(option.price)}
+                      </span>
                       <span className="pricing-table-tags">
                         {option.tags?.length ? option.tags.map((tag) => <em key={tag}>{tag}</em>) : "-"}
                       </span>

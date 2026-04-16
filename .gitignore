@@ -11,6 +11,9 @@ node_modules
 dist
 dist-ssr
 dist-amplify*.zip
+dist-frontend*.zip
+lambda-sally*.zip
+pricing-engine-*.zip
 *.local
 
 # Editor directories and files

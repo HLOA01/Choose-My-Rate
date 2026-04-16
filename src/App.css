@@ -510,6 +510,81 @@ body {
   background: linear-gradient(180deg, rgba(15, 23, 42, 0.80) 0%, rgba(10, 15, 28, 0.86) 100%);
 }
 
+.pricing-status-line {
+  margin-top: 4px;
+  color: #cbd5e1;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.pricing-banner,
+.pricing-paused {
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.pricing-banner {
+  color: #fde68a;
+  background: rgba(180, 83, 9, 0.18);
+  border: 1px solid rgba(245, 158, 11, 0.26);
+}
+
+.pricing-paused {
+  color: #fecaca;
+  background: rgba(127, 29, 29, 0.26);
+  border: 1px solid rgba(248, 113, 113, 0.28);
+}
+
+.pricing-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.pricing-option {
+  min-height: 58px;
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: 8px;
+  padding: 10px;
+  color: #e5e7eb;
+  background: rgba(255,255,255,0.05);
+  text-align: left;
+  cursor: pointer;
+}
+
+.pricing-option.active {
+  border-color: rgba(193, 18, 31, 0.7);
+  background: rgba(193, 18, 31, 0.18);
+}
+
+.pricing-option span,
+.pricing-option strong {
+  display: block;
+}
+
+.pricing-option span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.pricing-option strong {
+  margin-top: 4px;
+  font-size: 15px;
+}
+
+.pricing-program {
+  margin-top: 8px;
+  color: #cbd5e1;
+  font-size: 13px;
+  font-weight: 700;
+}
+
 .payment-hero {
   display: grid;
   grid-template-columns: 1.2fr 0.8fr;
@@ -647,7 +722,8 @@ body {
   .bottom-grid,
   .conversation-row,
   .payment-hero,
-  .rate-row {
+  .rate-row,
+  .pricing-options {
     grid-template-columns: 1fr;
   }
 

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
 import { createEmptyScenario, processSallyMessage } from "./SallyBrain";
 import { askSallyApi, hasSallyApi } from "./sallyApi";
+import { hasPricingApi, quotePricing } from "./pricingApi";
 
 const INITIAL_PROMPT =
   "Hi, I’m Sally. I can help you build your loan scenario and guide you step by step. Are you looking to buy a home, refinance, or take cash out?";
@@ -200,6 +201,80 @@ const valueBase = toNumber(scenario.purchasePrice);
   };
 }
 
+function normalizeLoanTypePreference(value) {
+  const program = String(value || "").trim().toLowerCase();
+  const map = {
+    conventional: "conventional",
+    fha: "fha",
+    va: "va",
+    usda: "usda",
+    jumbo: "jumbo",
+    dscr: "dscr",
+  };
+
+  return map[program] || null;
+}
+
+function normalizeOccupancy(value) {
+  const occupancy = String(value || "primary").toLowerCase();
+
+  if (occupancy === "second" || occupancy === "second_home") return "second_home";
+  if (occupancy === "investment") return "investment";
+  return "primary";
+}
+
+function buildPricingScenario(scenario) {
+  const purchasePrice = toNumber(scenario.purchasePrice);
+  const loanAmount = toNumber(scenario.loanAmount);
+  const downPayment = toNumber(scenario.downPayment);
+  const ltv = purchasePrice && loanAmount ? Number(((loanAmount / purchasePrice) * 100).toFixed(3)) : null;
+
+  return {
+    purchasePrice,
+    loanAmount,
+    creditScore: toNumber(scenario.creditScore),
+    occupancy: normalizeOccupancy(scenario.occupancy),
+    loanPurpose: scenario.loanPurpose || "purchase",
+    loanTypePreference: normalizeLoanTypePreference(scenario.loanType),
+    propertyType: scenario.propertyType || "single_family",
+    zipCode: scenario.zipCode || "",
+    downPayment: downPayment || null,
+    ltv,
+    language: "en",
+  };
+}
+
+function hasMinimumPricingScenario(payload) {
+  return Boolean(payload.loanAmount && payload.creditScore && payload.occupancy && payload.loanPurpose);
+}
+
+function adaptPricingOptionToPanel(option, scenario, fallbackPricing) {
+  if (!option) return null;
+
+  const loanAmount = toNumber(scenario.loanAmount);
+  const rate = Number(option.rate);
+  const price = Number(option.price || 0);
+  const principalInterest = Math.round(Number(option.paymentPI || 0));
+  const total = Math.round(Number(option.paymentPITI || option.paymentPI || 0));
+  const estimatedEscrow = Math.max(total - principalInterest, 0);
+  const taxes = fallbackPricing.taxes || 0;
+  const insurance = fallbackPricing.insurance || 0;
+  const mortgageInsurance = Math.max(estimatedEscrow - taxes - insurance, fallbackPricing.mortgageInsurance || 0);
+
+  return {
+    rate: Number.isFinite(rate) ? rate : fallbackPricing.rate,
+    pointsPct: Number.isFinite(price) ? price : 0,
+    pointsDollars: Math.round(loanAmount * ((Number.isFinite(price) ? price : 0) / 100)),
+    principalInterest: principalInterest || fallbackPricing.principalInterest,
+    taxes,
+    insurance,
+    mortgageInsurance: Math.round(mortgageInsurance),
+    total: total || fallbackPricing.total,
+    program: option.program,
+    tags: Array.isArray(option.tags) ? option.tags : [],
+  };
+}
+
 function ScenarioControl({ field, value, onChange }) {
   return (
     <div className="scenario-control">
@@ -242,6 +317,10 @@ const [scenario, setScenario] = useState(() => ({
   const [isThinking, setIsThinking] = useState(false);
   const [voiceEnabled, setVoiceEnabled] = useState(true);
   const [speechSupported, setSpeechSupported] = useState(false);
+  const [pricingQuote, setPricingQuote] = useState(null);
+  const [pricingError, setPricingError] = useState("");
+  const [isPricingLoading, setIsPricingLoading] = useState(false);
+  const [selectedOptionId, setSelectedOptionId] = useState("");
   const [chatMode, setChatMode] = useState(() => {
     const savedMode = window.localStorage?.getItem(CHAT_MODE_STORAGE_KEY);
     return savedMode === "rules" ? "rules" : "ai";
@@ -277,12 +356,70 @@ const [scenario, setScenario] = useState(() => ({
     window.localStorage?.setItem(CHAT_MODE_STORAGE_KEY, chatMode);
   }, [chatMode]);
 
-  const pricing = useMemo(
+  const localPricing = useMemo(
     () => calculatePricing(enrichedScenario, selectedRate),
     [enrichedScenario, selectedRate]
   );
 
+  const livePricingOptions = Array.isArray(pricingQuote?.options) ? pricingQuote.options : [];
+  const selectedLiveOption =
+    livePricingOptions.find((option) => option.optionId === selectedOptionId) || livePricingOptions[0] || null;
+  const enginePricing = useMemo(
+    () => adaptPricingOptionToPanel(selectedLiveOption, enrichedScenario, localPricing),
+    [selectedLiveOption, enrichedScenario, localPricing]
+  );
+  const pricing = enginePricing || localPricing;
+  const pricingStatusText = enginePricing
+    ? `Live pricing${pricingQuote?.pricingAsOf ? ` as of ${new Date(pricingQuote.pricingAsOf).toLocaleTimeString()}` : ""}`
+    : pricingError || (isPricingLoading ? "Loading live pricing..." : "Estimate until live pricing is ready.");
+  const pricingPausedMessage =
+    pricingQuote?.status === "paused"
+      ? pricingQuote.message || "Online pricing is temporarily unavailable."
+      : "";
+
   const scenarioFields = useMemo(() => getScenarioFields(enrichedScenario), [enrichedScenario]);
+
+  useEffect(() => {
+    if (!hasPricingApi()) {
+      setPricingQuote(null);
+      setPricingError("Pricing API is not configured. Showing estimate.");
+      return;
+    }
+
+    const payload = buildPricingScenario(enrichedScenario);
+
+    if (!hasMinimumPricingScenario(payload)) {
+      setPricingQuote(null);
+      setPricingError("Add loan amount and credit score to get live pricing.");
+      setIsPricingLoading(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    setIsPricingLoading(true);
+    setPricingError("");
+
+    quotePricing(payload, { signal: controller.signal })
+      .then((quote) => {
+        setPricingQuote(quote);
+        setSelectedOptionId((current) => {
+          const options = Array.isArray(quote.options) ? quote.options : [];
+          if (options.some((option) => option.optionId === current)) return current;
+          return options[0]?.optionId || "";
+        });
+      })
+      .catch((error) => {
+        if (error.name === "AbortError") return;
+        console.warn("Pricing API fallback:", error);
+        setPricingQuote(null);
+        setPricingError("Live pricing is unavailable. Showing estimate.");
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setIsPricingLoading(false);
+      });
+
+    return () => controller.abort();
+  }, [enrichedScenario]);
 
   useEffect(() => {
     const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -570,42 +707,64 @@ const [scenario, setScenario] = useState(() => ({
             <div className="panel-header pricing-header">
               <div>
                 <h2 className="panel-title pricing-title-white">Pricing Engine</h2>
+                <div className="pricing-status-line">{pricingStatusText}</div>
               </div>
             </div>
+
+            {pricingQuote?.banner ? <div className="pricing-banner">{pricingQuote.banner}</div> : null}
+            {pricingPausedMessage ? <div className="pricing-paused">{pricingPausedMessage}</div> : null}
+
+            {!pricingPausedMessage && livePricingOptions.length > 0 ? (
+              <div className="pricing-options">
+                {livePricingOptions.slice(0, 3).map((option) => (
+                  <button
+                    key={option.optionId}
+                    type="button"
+                    className={`pricing-option ${selectedLiveOption?.optionId === option.optionId ? "active" : ""}`}
+                    onClick={() => setSelectedOptionId(option.optionId)}
+                  >
+                    <span>{option.program}</span>
+                    <strong>{formatPercent(option.rate)}</strong>
+                  </button>
+                ))}
+              </div>
+            ) : null}
 
             <div className="payment-hero">
               <div className="payment-main">
                 <div className="mini-label">Estimated Monthly Payment</div>
-                <div className="payment-value">{formatCurrency(pricing.total)}</div>
+                <div className="payment-value">{formatCurrency(pricingPausedMessage ? "" : pricing.total)}</div>
+                {pricing.program ? <div className="pricing-program">{pricing.program}</div> : null}
               </div>
 
               <div className="payment-mini-breakdown">
-                <div><span>P&I</span><strong>{formatCurrency(pricing.principalInterest)}</strong></div>
-                <div><span>Taxes</span><strong>{formatCurrency(pricing.taxes)}</strong></div>
-                <div><span>Insurance</span><strong>{formatCurrency(pricing.insurance)}</strong></div>
-                <div><span>MI</span><strong>{formatCurrency(pricing.mortgageInsurance)}</strong></div>
+                <div><span>P&I</span><strong>{formatCurrency(pricingPausedMessage ? "" : pricing.principalInterest)}</strong></div>
+                <div><span>Taxes</span><strong>{formatCurrency(pricingPausedMessage ? "" : pricing.taxes)}</strong></div>
+                <div><span>Insurance</span><strong>{formatCurrency(pricingPausedMessage ? "" : pricing.insurance)}</strong></div>
+                <div><span>MI</span><strong>{formatCurrency(pricingPausedMessage ? "" : pricing.mortgageInsurance)}</strong></div>
               </div>
             </div>
 
             <div className="rate-row">
               <div className="rate-card strong-card">
                 <div className="rate-card-label">Interest Rate</div>
-                <div className="rate-card-value">{formatPercent(pricing.rate)}</div>
+                <div className="rate-card-value">{formatPercent(pricingPausedMessage ? "" : pricing.rate)}</div>
 
                 <div className="rate-slider-wrap">
                   <input
                     type="range"
-                    min={Math.max(2, baseRate - 1.5)}
-                    max={baseRate + 1.5}
+                    min={Math.max(2, (enginePricing ? pricing.rate : baseRate) - 1.5)}
+                    max={(enginePricing ? pricing.rate : baseRate) + 1.5}
                     step="0.125"
-                    value={selectedRate}
+                    value={enginePricing ? pricing.rate : selectedRate}
                     onChange={(e) => setSelectedRate(Number(e.target.value))}
                     className="rate-slider"
+                    disabled={Boolean(enginePricing || pricingPausedMessage)}
                   />
                   <div className="slider-range-labels">
-                    <span>{formatPercent(Math.max(2, baseRate - 1.5))}</span>
-                    <span>{formatPercent(baseRate)}</span>
-                    <span>{formatPercent(baseRate + 1.5)}</span>
+                    <span>{formatPercent(Math.max(2, (enginePricing ? pricing.rate : baseRate) - 1.5))}</span>
+                    <span>{formatPercent(enginePricing ? pricing.rate : baseRate)}</span>
+                    <span>{formatPercent((enginePricing ? pricing.rate : baseRate) + 1.5)}</span>
                   </div>
                 </div>
               </div>
@@ -613,14 +772,18 @@ const [scenario, setScenario] = useState(() => ({
               <div className="rate-card">
                 <div className="rate-card-label">Points / Credit</div>
                 <div className={`points-pct ${pricing.pointsPct > 0 ? "cost-text" : pricing.pointsPct < 0 ? "credit-text" : ""}`}>
-                  {pricing.pointsPct > 0
+                  {pricingPausedMessage
+                    ? "Paused"
+                    : pricing.pointsPct > 0
                     ? `${formatPercent(pricing.pointsPct)} Cost`
                     : pricing.pointsPct < 0
                     ? `${formatPercent(Math.abs(pricing.pointsPct))} Credit`
                     : "Par"}
                 </div>
                 <div className={`points-dollars ${pricing.pointsPct > 0 ? "cost-text" : pricing.pointsPct < 0 ? "credit-text" : ""}`}>
-                  {pricing.pointsPct > 0
+                  {pricingPausedMessage
+                    ? "Unavailable"
+                    : pricing.pointsPct > 0
                     ? formatCurrency(pricing.pointsDollars)
                     : pricing.pointsPct < 0
                     ? `+${formatCurrency(Math.abs(pricing.pointsDollars))}`

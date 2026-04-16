@@ -278,6 +278,20 @@ function adaptPricingOptionToPanel(option, scenario, fallbackPricing) {
   };
 }
 
+const EMPTY_PRICING = {
+  rate: "",
+  pointsPct: 0,
+  pointsDollars: 0,
+  principalInterest: "",
+  taxes: "",
+  insurance: "",
+  mortgageInsurance: "",
+  total: "",
+  program: "",
+  tags: [],
+  estimatedCashToClose: "",
+};
+
 function formatPointsCreditLabel(value) {
   const numeric = Number(value || 0);
 
@@ -439,6 +453,7 @@ const [scenario, setScenario] = useState(() => ({
 
   const recognitionRef = useRef(null);
   const selectedRateStackItemRef = useRef(null);
+  const selectedPricingTableRowRef = useRef(null);
   const previousPricingSelectionRef = useRef(null);
   const suppressNextPricingGuidanceRef = useRef(false);
   const rateWheelLastMoveRef = useRef(0);
@@ -469,20 +484,17 @@ const [scenario, setScenario] = useState(() => ({
   }, [scenario]);
 
   const baseRate = useMemo(() => getBaseRate(enrichedScenario), [enrichedScenario]);
-  const [selectedRate, setSelectedRate] = useState(baseRate);
-
-  useEffect(() => {
-    setSelectedRate(baseRate);
-  }, [baseRate]);
 
   useEffect(() => {
     window.localStorage?.setItem(CHAT_MODE_STORAGE_KEY, chatMode);
   }, [chatMode]);
 
-  const localPricing = useMemo(
-    () => calculatePricing(enrichedScenario, selectedRate),
-    [enrichedScenario, selectedRate]
+  const escrowEstimate = useMemo(
+    () => calculatePricing(enrichedScenario, baseRate),
+    [enrichedScenario, baseRate]
   );
+  const pricingScenarioPayload = useMemo(() => buildPricingScenario(enrichedScenario), [enrichedScenario]);
+  const hasPricingScenario = hasMinimumPricingScenario(pricingScenarioPayload);
 
   const livePricingOptions = Array.isArray(pricingQuote?.options) ? pricingQuote.options : [];
   const selectedLiveOptionIndex = Math.max(
@@ -492,13 +504,13 @@ const [scenario, setScenario] = useState(() => ({
   const selectedLiveOption =
     livePricingOptions.find((option) => option.optionId === selectedOptionId) || livePricingOptions[0] || null;
   const enginePricing = useMemo(
-    () => adaptPricingOptionToPanel(selectedLiveOption, enrichedScenario, localPricing),
-    [selectedLiveOption, enrichedScenario, localPricing]
+    () => adaptPricingOptionToPanel(selectedLiveOption, enrichedScenario, escrowEstimate),
+    [selectedLiveOption, enrichedScenario, escrowEstimate]
   );
-  const pricing = enginePricing || localPricing;
+  const pricing = enginePricing || EMPTY_PRICING;
   const pricingStatusText = enginePricing
     ? `Live pricing${pricingQuote?.pricingAsOf ? ` as of ${new Date(pricingQuote.pricingAsOf).toLocaleTimeString()}` : ""}`
-    : pricingError || (isPricingLoading ? "Loading live pricing..." : "Estimate until live pricing is ready.");
+    : pricingError || (isPricingLoading ? "Loading real lender rate stack..." : "Complete the scenario to load real lender pricing.");
   const pricingPausedMessage =
     pricingQuote?.status === "paused"
       ? pricingQuote.message || "Online pricing is temporarily unavailable."
@@ -509,15 +521,13 @@ const [scenario, setScenario] = useState(() => ({
   useEffect(() => {
     if (!hasPricingApi()) {
       setPricingQuote(null);
-      setPricingError("Pricing API is not configured. Showing estimate.");
+      setPricingError("Pricing API is not configured.");
       setRateGuidanceMessage("");
       previousPricingSelectionRef.current = null;
       return;
     }
 
-    const payload = buildPricingScenario(enrichedScenario);
-
-    if (!hasMinimumPricingScenario(payload)) {
+    if (!hasPricingScenario) {
       setPricingQuote(null);
       setPricingError("Add loan amount and credit score to get live pricing.");
       setIsPricingLoading(false);
@@ -530,7 +540,7 @@ const [scenario, setScenario] = useState(() => ({
     setIsPricingLoading(true);
     setPricingError("");
 
-    quotePricing(payload, { signal: controller.signal })
+    quotePricing(pricingScenarioPayload, { signal: controller.signal })
       .then((quote) => {
         suppressNextPricingGuidanceRef.current = true;
         setPricingQuote(quote);
@@ -547,7 +557,7 @@ const [scenario, setScenario] = useState(() => ({
         if (error.name === "AbortError") return;
         console.warn("Pricing API fallback:", error);
         setPricingQuote(null);
-        setPricingError("Live pricing is unavailable. Showing estimate.");
+        setPricingError("Live pricing is unavailable.");
         setRateGuidanceMessage("");
         previousPricingSelectionRef.current = null;
       })
@@ -556,7 +566,7 @@ const [scenario, setScenario] = useState(() => ({
       });
 
     return () => controller.abort();
-  }, [enrichedScenario]);
+  }, [enrichedScenario, hasPricingScenario, pricingScenarioPayload]);
 
   useEffect(() => {
     const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -596,6 +606,12 @@ const [scenario, setScenario] = useState(() => ({
       behavior: "smooth",
       block: "nearest",
       inline: "center",
+    });
+
+    selectedPricingTableRowRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "nearest",
+      inline: "nearest",
     });
   }, [selectedOptionId]);
 
@@ -1009,8 +1025,18 @@ const [scenario, setScenario] = useState(() => ({
               </div>
             ) : (
               <div className="rate-stack-empty">
-                <strong>Live rate stack pending</strong>
-                <span>Complete the scenario and Sally will load real lender pricing options here.</span>
+                <strong>
+                  {isPricingLoading
+                    ? "Loading lender rate stack"
+                    : hasPricingScenario
+                    ? "No eligible live pricing options returned"
+                    : "Real lender pricing loads here"}
+                </strong>
+                <span>
+                  {hasPricingScenario
+                    ? "Adjust the scenario details or product type so Sally can request another real 30-day lock rate stack."
+                    : "Add the core scenario details and Sally will load selectable lender rate options."}
+                </span>
               </div>
             )}
 
@@ -1065,26 +1091,31 @@ const [scenario, setScenario] = useState(() => ({
                     <span>Rate</span>
                     <span>Payment</span>
                     <span>Points/Credit</span>
-                    <span>Note</span>
                   </div>
-                  {livePricingOptions.map((option) => (
-                    <button
-                      key={option.optionId}
-                      type="button"
-                      className={`pricing-table-row ${selectedLiveOption?.optionId === option.optionId ? "active" : ""}`}
-                      onClick={() => selectLiveOption(option)}
-                      role="row"
-                    >
-                      <span>{formatPercent(option.rate)}</span>
-                      <span>{formatCurrency(option.paymentPITI)}</span>
-                      <span className={option.price < 0 ? "credit-text" : option.price > 0 ? "cost-text" : ""}>
-                        {formatPointsCreditLabel(option.price)}
-                      </span>
-                      <span className="pricing-table-tags">
-                        {option.tags?.length ? option.tags.map((tag) => <em key={tag}>{tag}</em>) : "-"}
-                      </span>
-                    </button>
-                  ))}
+                  {livePricingOptions.map((option) => {
+                    const isSelected = selectedLiveOption?.optionId === option.optionId;
+                    return (
+                      <button
+                        key={option.optionId}
+                        ref={isSelected ? selectedPricingTableRowRef : null}
+                        type="button"
+                        className={`pricing-table-row ${isSelected ? "active" : ""}`}
+                        onClick={() => selectLiveOption(option)}
+                        role="row"
+                      >
+                        <span>
+                          {formatPercent(option.rate)}
+                          {option.tags?.length ? (
+                            <small className="pricing-row-note">{option.tags.join(" / ")}</small>
+                          ) : null}
+                        </span>
+                        <span>{formatCurrency(option.paymentPITI)}</span>
+                        <span className={option.price < 0 ? "credit-text" : option.price > 0 ? "cost-text" : ""}>
+                          {formatPointsCreditLabel(option.price)}
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             ) : null}

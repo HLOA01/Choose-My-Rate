@@ -712,6 +712,22 @@ body {
   margin: 14px 0;
 }
 
+.rate-stack-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+  color: #e5e7eb;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.rate-stack-heading strong {
+  color: #cbd5e1;
+  font-size: 12px;
+}
+
 .rate-wheel-shell {
   display: grid;
   grid-template-columns: 34px minmax(0, 1fr) 34px;
@@ -737,12 +753,13 @@ body {
 
 .rate-wheel {
   position: relative;
-  display: grid;
-  grid-template-columns: repeat(7, minmax(82px, 1fr));
+  display: flex;
   gap: 8px;
   align-items: center;
   padding: 12px;
-  overflow: hidden;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scroll-padding-inline: calc(50% - 56px);
   border: 1px solid rgba(255,255,255,0.08);
   border-radius: 8px;
   background:
@@ -760,6 +777,8 @@ body {
 }
 
 .rate-wheel-item {
+  flex: 0 0 112px;
+  scroll-snap-align: center;
   min-height: 74px;
   border: 1px solid rgba(255,255,255,0.10);
   border-radius: 8px;
@@ -804,11 +823,24 @@ body {
   pointer-events: none;
 }
 
-.fallback-rate-slider {
-  padding: 14px;
+.rate-stack-empty {
+  display: grid;
+  gap: 6px;
+  margin: 14px 0;
+  padding: 16px;
   border: 1px solid rgba(255,255,255,0.08);
   border-radius: 8px;
   background: rgba(255,255,255,0.045);
+}
+
+.rate-stack-empty strong {
+  color: #ffffff;
+  font-size: 14px;
+}
+
+.rate-stack-empty span {
+  color: #cbd5e1;
+  font-size: 13px;
 }
 
 .pricing-detail-grid {
@@ -1014,7 +1046,6 @@ button.pricing-table-row {
   }
 
   .rate-wheel {
-    grid-template-columns: repeat(5, minmax(82px, 1fr));
     overflow-x: auto;
   }
 

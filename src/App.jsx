@@ -429,6 +429,7 @@ const [scenario, setScenario] = useState(() => ({
   });
 
   const recognitionRef = useRef(null);
+  const selectedRateStackItemRef = useRef(null);
   const previousPricingSelectionRef = useRef(null);
   const suppressNextPricingGuidanceRef = useRef(false);
   const rateWheelLastMoveRef = useRef(0);
@@ -494,19 +495,6 @@ const [scenario, setScenario] = useState(() => ({
       ? pricingQuote.message || "Online pricing is temporarily unavailable."
       : "";
   const selectedOptionPosition = livePricingOptions.length ? selectedLiveOptionIndex + 1 : 0;
-  const visibleRateOptions = useMemo(() => {
-    if (!livePricingOptions.length) return [];
-
-    return [-3, -2, -1, 0, 1, 2, 3].map((distance) => {
-      const absoluteIndex = selectedLiveOptionIndex + distance;
-      return {
-        option: livePricingOptions[absoluteIndex] || null,
-        absoluteIndex,
-        distance,
-      };
-    });
-  }, [livePricingOptions, selectedLiveOptionIndex]);
-
   const scenarioFields = useMemo(() => getScenarioFields(enrichedScenario), [enrichedScenario]);
 
   useEffect(() => {
@@ -591,6 +579,16 @@ const [scenario, setScenario] = useState(() => ({
       }
     };
   }, []);
+
+  useEffect(() => {
+    if (!selectedRateStackItemRef.current) return;
+
+    selectedRateStackItemRef.current.scrollIntoView({
+      behavior: "smooth",
+      block: "nearest",
+      inline: "center",
+    });
+  }, [selectedOptionId]);
 
   const speak = (text) => {
     if (!voiceEnabled || !window.speechSynthesis) return;
@@ -949,6 +947,10 @@ const [scenario, setScenario] = useState(() => ({
 
             {enginePricing && livePricingOptions.length > 0 ? (
               <div className="rate-wheel-section">
+                <div className="rate-stack-heading">
+                  <span>Rate Stack</span>
+                  <strong>{livePricingOptions.length} real lender options</strong>
+                </div>
                 <div className="rate-wheel-shell">
                   <button
                     type="button"
@@ -960,14 +962,18 @@ const [scenario, setScenario] = useState(() => ({
                     &lsaquo;
                   </button>
                   <div className="rate-wheel" aria-label="Rate selector" onWheel={handleRateWheel}>
-                    {visibleRateOptions.map(({ option, absoluteIndex, distance }) =>
-                      option ? (
+                    {livePricingOptions.map((option, index) => {
+                      const distance = Math.min(Math.abs(index - selectedLiveOptionIndex), 5);
+                      const isSelected = option.optionId === selectedLiveOption?.optionId;
+
+                      return (
                         <button
                           key={option.optionId}
+                          ref={isSelected ? selectedRateStackItemRef : null}
                           type="button"
-                          className={`rate-wheel-item ${distance === 0 ? "selected" : ""}`}
+                          className={`rate-wheel-item ${isSelected ? "selected" : ""}`}
                           style={{
-                            "--distance": Math.abs(distance),
+                            "--distance": distance,
                           }}
                           onClick={() => selectLiveOption(option)}
                           aria-label={`Select rate ${formatPercent(option.rate)}`}
@@ -975,17 +981,8 @@ const [scenario, setScenario] = useState(() => ({
                           <span>{formatPercent(option.rate)}</span>
                           <small>{formatPointsCreditLabel(option.price)}</small>
                         </button>
-                      ) : (
-                        <div
-                          key={`empty-${absoluteIndex}`}
-                          className="rate-wheel-item placeholder"
-                          aria-hidden="true"
-                          style={{
-                            "--distance": Math.abs(distance),
-                          }}
-                        />
-                      )
-                    )}
+                      );
+                    })}
                   </div>
                   <button
                     type="button"
@@ -1002,22 +999,9 @@ const [scenario, setScenario] = useState(() => ({
                 </div>
               </div>
             ) : (
-              <div className="rate-slider-wrap fallback-rate-slider">
-                <input
-                  type="range"
-                  min={Math.max(2, baseRate - 1.5)}
-                  max={baseRate + 1.5}
-                  step="0.125"
-                  value={selectedRate}
-                  onChange={(e) => setSelectedRate(Number(e.target.value))}
-                  className="rate-slider"
-                  disabled={Boolean(pricingPausedMessage)}
-                />
-                <div className="slider-range-labels">
-                  <span>{formatPercent(Math.max(2, baseRate - 1.5))}</span>
-                  <span>{formatPercent(baseRate)}</span>
-                  <span>{formatPercent(baseRate + 1.5)}</span>
-                </div>
+              <div className="rate-stack-empty">
+                <strong>Live rate stack pending</strong>
+                <span>Complete the scenario and Sally will load real lender pricing options here.</span>
               </div>
             )}
 

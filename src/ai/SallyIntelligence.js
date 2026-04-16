@@ -103,9 +103,27 @@ function normalizeLoanType(value = '') {
   const text = normalizeText(value);
 
   if (text.includes('fha')) return 'FHA';
-  if (text.includes('conventional') || text.includes('conv')) return 'Conventional';
-  if (text.includes('va')) return 'VA';
-  if (text.includes('usda')) return 'USDA';
+  if (/\bva\b|v\.a\./.test(text)) return 'VA';
+  if (text.includes('usda') || text.includes('rural')) return 'USDA';
+  if (text.includes('jumbo') || text.includes('high balance')) return 'Jumbo';
+  if (
+    text.includes('dscr') ||
+    text.includes('debt service') ||
+    text.includes('rental cash flow') ||
+    text.includes('investor cash flow')
+  ) {
+    return 'DSCR';
+  }
+  if (
+    text.includes('conventional') ||
+    /\bconv\b/.test(text) ||
+    text.includes('fnma') ||
+    text.includes('fannie') ||
+    text.includes('fhlmc') ||
+    text.includes('freddie')
+  ) {
+    return 'Conventional';
+  }
 
   return '';
 }

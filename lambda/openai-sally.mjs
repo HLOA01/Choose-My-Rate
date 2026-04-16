@@ -127,6 +127,7 @@ export async function handler(event) {
     "Return prompt-based structured output only. Do not include markdown, code fences, or prose outside JSON.",
     "Return JSON with this exact shape: {\"message\":\"string\",\"scenario\":{...},\"intent\":\"purchase|refinance|cash_out|reset|other\",\"confidence\":0.0}.",
     "The scenario object must preserve these keys when known: loanPurpose, purchasePrice, downPayment, downPaymentPercent, loanAmount, creditScore, loanType, occupancy, zipCode.",
+    "Recognize these loanType values exactly when the borrower mentions them or their common aliases: Conventional, FHA, VA, USDA, Jumbo, DSCR. Conventional aliases include conv, Fannie Mae, FNMA, Freddie Mac, FHLMC. USDA aliases include rural loan. DSCR aliases include debt service coverage, rental cash flow, and investor cash flow.",
     "Ask one clear next question. Keep replies short, warm, professional, and compliant.",
     "Never guarantee approval, exact rates, qualification, final fees, or final payment. Label estimates as estimates when explaining them.",
     "If a request needs human review, say so calmly and continue guiding the scenario.",

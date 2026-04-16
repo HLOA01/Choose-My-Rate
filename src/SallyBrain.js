@@ -39,9 +39,11 @@ function inferOccupancy(text) {
 
 function inferLoanType(text) {
   if (/\bfha\b/.test(text)) return "FHA";
-  if (/\bva\b/.test(text)) return "VA";
-  if (/\busda\b/.test(text)) return "USDA";
-  if (/\bconventional|conv\b/.test(text)) return "Conventional";
+  if (/\bva\b|v\.a\./.test(text)) return "VA";
+  if (/\busda\b|\brural\b/.test(text)) return "USDA";
+  if (/\bjumbo\b|\bhigh[\s-]?balance\b/.test(text)) return "Jumbo";
+  if (/\bdscr\b|\bdebt service\b|\brental cash flow\b|\binvestor cash flow\b/.test(text)) return "DSCR";
+  if (/\bconventional\b|\bconv\b|\bfnma\b|\bfannie\b|\bfhlmc\b|\bfreddie\b/.test(text)) return "Conventional";
   return "";
 }
 
@@ -210,7 +212,7 @@ function nextQuestionForScenario(scenario) {
     }
 
     if (!scenario.loanType) {
-      return "Do you want to look at Conventional, FHA, VA, or USDA financing?";
+      return "Do you want to look at Conventional, FHA, VA, USDA, Jumbo, or DSCR financing?";
     }
 
     if (!scenario.zipCode) {
@@ -238,7 +240,7 @@ function nextQuestionForScenario(scenario) {
     }
 
     if (!scenario.loanType) {
-      return "Do you want to explore Conventional, FHA, VA, or USDA options?";
+      return "Do you want to explore Conventional, FHA, VA, USDA, Jumbo, or DSCR options?";
     }
 
     if (!scenario.zipCode) {

@@ -3,6 +3,7 @@ import type { PricingRow } from "../db/models/pricingRow.js";
 import type { BorrowerPricingOption } from "../types/pricing.js";
 import type { PricingScenario } from "../types/scenario.js";
 import { estimatePiti } from "./calculatePayment.js";
+import { getBorrowerProgramName } from "./programDisplayName.js";
 
 function roundedMoney(value: number) {
   return Math.round(value * 100) / 100;
@@ -24,7 +25,7 @@ function toOption(row: PricingRow, scenario: PricingScenario, tags: string[]): B
 
   return {
     optionId: uuidv4(),
-    program: row.productName,
+    program: getBorrowerProgramName(row),
     rate: row.rate,
     price: row.price,
     paymentPI: roundedMoney(payments.paymentPI),

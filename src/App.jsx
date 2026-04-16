@@ -65,6 +65,7 @@ function getScenarioFields(scenario) {
         { value: "VA", label: "VA" },
         { value: "USDA", label: "USDA" },
         { value: "Jumbo", label: "Jumbo" },
+        { value: "DSCR", label: "DSCR" },
       ],
     },
     {
@@ -123,6 +124,7 @@ const program = String(scenario.loanType || "Conventional").toLowerCase();
   if (program === "va") rate = 6.125;
   if (program === "usda") rate = 6.25;
   if (program === "jumbo") rate = 6.875;
+  if (program === "dscr") rate = 7.875;
   if (program === "conventional") rate = 6.75;
 
   if (creditScore >= 740) rate -= 0.125;

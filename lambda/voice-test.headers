@@ -1,0 +1,7 @@
+HTTP/1.1 400 Bad Request
+Date: Wed, 22 Apr 2026 02:23:45 GMT
+Content-Type: application/json
+Content-Length: 40
+Connection: keep-alive
+Apigw-Requestid: cMyfyhyjoAMEP1w=
+

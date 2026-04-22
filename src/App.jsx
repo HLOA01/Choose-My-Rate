@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
+import { useSallyVoice } from "./hooks/useSallyVoice";
 import { createEmptyScenario, processSallyMessage } from "./SallyBrain";
 import { askSallyApi, hasSallyApi } from "./sallyApi";
 import { hasPricingApi, quotePricing } from "./pricingApi";
@@ -437,9 +438,8 @@ const [scenario, setScenario] = useState(() => ({
   const [lastAnswer, setLastAnswer] = useState("");
   const [input, setInput] = useState("");
   const [isListening, setIsListening] = useState(false);
-  const [isSpeaking, setIsSpeaking] = useState(false);
   const [isThinking, setIsThinking] = useState(false);
-  const [voiceEnabled, setVoiceEnabled] = useState(true);
+  const [isUserTyping, setIsUserTyping] = useState(false);
   const [speechSupported, setSpeechSupported] = useState(false);
   const [pricingQuote, setPricingQuote] = useState(null);
   const [pricingError, setPricingError] = useState("");
@@ -450,6 +450,22 @@ const [scenario, setScenario] = useState(() => ({
     const savedMode = window.localStorage?.getItem(CHAT_MODE_STORAGE_KEY);
     return savedMode === "rules" ? "rules" : "ai";
   });
+  const {
+    speak,
+    stop: stopSallyVoice,
+    isSpeaking,
+    muted,
+    autoPlay,
+    voiceError,
+    voiceAvailable,
+    setMuted,
+    toggleAutoPlay,
+  } = useSallyVoice();
+  const voiceEnabled = !muted;
+  const setVoiceEnabled = (valueOrUpdater) => {
+    const nextValue = typeof valueOrUpdater === "function" ? valueOrUpdater(voiceEnabled) : valueOrUpdater;
+    setMuted(!nextValue);
+  };
 
   const recognitionRef = useRef(null);
   const selectedRateStackItemRef = useRef(null);
@@ -488,6 +504,22 @@ const [scenario, setScenario] = useState(() => ({
   useEffect(() => {
     window.localStorage?.setItem(CHAT_MODE_STORAGE_KEY, chatMode);
   }, [chatMode]);
+
+  useEffect(() => {
+    const normalizedInput = String(input || "").trim();
+
+    if (!normalizedInput) {
+      setIsUserTyping(false);
+      return;
+    }
+
+    setIsUserTyping(true);
+    const typingTimer = window.setTimeout(() => {
+      setIsUserTyping(false);
+    }, 700);
+
+    return () => window.clearTimeout(typingTimer);
+  }, [input]);
 
   const escrowEstimate = useMemo(
     () => calculatePricing(enrichedScenario, baseRate),
@@ -615,39 +647,30 @@ const [scenario, setScenario] = useState(() => ({
     });
   }, [selectedOptionId]);
 
-  const speak = (text) => {
-    if (!voiceEnabled || !window.speechSynthesis) return;
-
-    window.speechSynthesis.cancel();
-
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.rate = 1;
-    utterance.pitch = 1;
-    utterance.volume = 1;
-
-    utterance.onstart = () => setIsSpeaking(true);
-    utterance.onend = () => setIsSpeaking(false);
-    utterance.onerror = () => setIsSpeaking(false);
-
-    window.speechSynthesis.speak(utterance);
-  };
-
   const stopVoice = () => {
     if (recognitionRef.current && isListening) {
       recognitionRef.current.stop();
     }
-    if (window.speechSynthesis) {
-      window.speechSynthesis.cancel();
-    }
+    stopSallyVoice();
     setIsListening(false);
-    setIsSpeaking(false);
   };
 
   const startVoice = () => {
     if (!recognitionRef.current) return;
-    window.speechSynthesis?.cancel();
+    stopSallyVoice();
     recognitionRef.current.start();
   };
+
+  const speakSallyMessage = useCallback(
+    (message, { allowWhileTyping = false } = {}) => {
+      if (!message) return;
+      if (!allowWhileTyping && isUserTyping) return;
+
+      stopSallyVoice();
+      speak(message);
+    },
+    [isUserTyping, speak, stopSallyVoice],
+  );
 
   const selectLiveOption = (option, { sound = true } = {}) => {
     if (!option) return;
@@ -705,11 +728,8 @@ const [scenario, setScenario] = useState(() => ({
     previousPricingSelectionRef.current = selectedLiveOption;
     setRateGuidanceMessage(message);
     setPrompt(message);
-
-    if (voiceEnabled) {
-      speak(message);
-    }
-  }, [selectedLiveOption, pricingPausedMessage, voiceEnabled]);
+    speakSallyMessage(message);
+  }, [pricingPausedMessage, selectedLiveOption, speakSallyMessage]);
 
   const normalizeScenarioAfterBrain = (next) => {
   const scenarioCopy = { ...next };
@@ -733,6 +753,7 @@ const [scenario, setScenario] = useState(() => ({
 
     setLastAnswer(userText);
     setInput("");
+    setIsUserTyping(false);
     setIsThinking(true);
 
     let result = localResult;
@@ -756,10 +777,7 @@ const [scenario, setScenario] = useState(() => ({
     setPrompt(result.message);
     setScenario((prev) => normalizeScenarioAfterBrain({ ...prev, ...result.scenario }));
     setIsThinking(false);
-
-    if (voiceEnabled) {
-      speak(result.message);
-    }
+    speakSallyMessage(result.message, { allowWhileTyping: true });
   };
 
   const handleKeyDown = (event) => {
@@ -869,6 +887,20 @@ const [scenario, setScenario] = useState(() => ({
                   🔊
                 </button>
               </div>
+              <div className="sally-voice-note">
+                {voiceError
+                  ? voiceError
+                  : voiceAvailable
+                  ? `Sally voice is using AWS Polly Joanna neural.${autoPlay ? " Auto-play is on." : " Auto-play is off."}`
+                  : "Configure the Sally voice API to enable AWS Polly playback."}
+              </div>
+              <button
+                type="button"
+                className={`voice-setting-toggle ${autoPlay ? "active-control" : ""}`}
+                onClick={toggleAutoPlay}
+              >
+                Auto-play {autoPlay ? "On" : "Off"}
+              </button>
             </div>
 
             <div className="sally-right-tools">

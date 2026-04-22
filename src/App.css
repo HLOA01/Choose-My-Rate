@@ -165,6 +165,14 @@ body {
   padding-left: 46px;
 }
 
+.sally-voice-note {
+  max-width: 420px;
+  padding-left: 46px;
+  color: #cbd5e1;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
 .sally-header {
   display: flex;
   justify-content: space-between;
@@ -279,7 +287,8 @@ body {
 }
 
 .icon-control,
-.mode-toggle {
+.mode-toggle,
+.voice-setting-toggle {
   width: 44px;
   height: 44px;
   border-radius: 14px;
@@ -300,13 +309,24 @@ body {
   letter-spacing: 0;
 }
 
+.voice-setting-toggle {
+  width: auto;
+  min-width: 122px;
+  padding: 0 14px;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0;
+}
+
 .icon-control.active-control,
-.mode-toggle.active-control {
+.mode-toggle.active-control,
+.voice-setting-toggle.active-control {
   background: rgba(122, 15, 20, 0.42);
   border-color: rgba(193, 18, 31, 0.52);
 }
 
-.icon-control:disabled {
+.icon-control:disabled,
+.voice-setting-toggle:disabled {
   opacity: 0.4;
   cursor: not-allowed;
 }

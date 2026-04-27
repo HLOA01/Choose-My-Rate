@@ -51,41 +51,55 @@ The browser calls the public Sally API endpoint through:
 VITE_SALLY_API_URL=https://aspy7gkhu0.execute-api.us-east-1.amazonaws.com
 ```
 
-Sally voice playback uses a separate secure Polly endpoint:
+Sally voice playback uses a separate secure server-side endpoint:
 
 ```bash
 VITE_SALLY_VOICE_API_URL=https://your-sally-voice-endpoint.execute-api.us-east-1.amazonaws.com
 ```
 
-That endpoint is backed by AWS Lambda. Add the OpenAI key to Lambda, not to the frontend:
+That endpoint is backed by AWS Lambda. Add the OpenAI key to Lambda, not to the frontend. Keep your Lambda secrets in `lambda/.env` for local/server setup and make sure `.env` stays out of git:
 
 ```bash
-aws lambda update-function-configuration \
-  --profile choose-my-rate \
-  --region us-east-1 \
-  --function-name choose-my-rate-sally-openai \
-  --environment "Variables={OPENAI_API_KEY=your_openai_api_key,OPENAI_MODEL=gpt-4o-mini,ALLOWED_ORIGIN=*}"
+OPENAI_API_KEY=PASTE_KEY_HERE
+SALLY_TEXT_MODEL=gpt-5.4
+SALLY_FALLBACK_TEXT_MODEL=gpt-5.4-mini
+SALLY_TTS_MODEL=gpt-4o-mini-tts
+SALLY_TTS_VOICE=marin
+VOICE_PROVIDER=openai
+VOICE_FALLBACK_PROVIDER=polly
 ```
 
-After that, Sally will use OpenAI for chat responses. Without the key, the frontend falls back to the local rule-based Sally brain.
+After that, Sally will use OpenAI for chat responses and OpenAI TTS for voice. Without the key, the frontend falls back to the local rule-based Sally brain, and voice can fall back to Polly.
 
-## Sally Voice With AWS Polly
+## Sally Brain And Voice Backend
 
-Sally voice is implemented as a separate server-side Polly Lambda so AWS credentials never touch the browser.
+Sally uses separate server-side Lambda handlers so private credentials never touch the browser.
 
 Frontend files:
 
+- [src/sallyApi.js](./src/sallyApi.js)
 - [src/services/voice/voiceConfig.js](./src/services/voice/voiceConfig.js)
 - [src/services/voice/sallyVoiceClient.js](./src/services/voice/sallyVoiceClient.js)
 - [src/hooks/useSallyVoice.js](./src/hooks/useSallyVoice.js)
 
 Backend files:
 
+- [lambda/openai-sally.mjs](./lambda/openai-sally.mjs)
+- [lambda/openai-voice.mjs](./lambda/openai-voice.mjs)
 - [lambda/polly-sally.mjs](./lambda/polly-sally.mjs)
 - [lambda/polly-voice-config.mjs](./lambda/polly-voice-config.mjs)
 - [lambda/package.json](./lambda/package.json)
 
-Default Polly settings:
+Default OpenAI settings:
+
+- `SALLY_TEXT_MODEL=gpt-5.4`
+- `SALLY_FALLBACK_TEXT_MODEL=gpt-5.4-mini`
+- `SALLY_TTS_MODEL=gpt-4o-mini-tts`
+- `SALLY_TTS_VOICE=marin`
+- `VOICE_PROVIDER=openai`
+- `VOICE_FALLBACK_PROVIDER=polly`
+
+Fallback Polly settings:
 
 - `VoiceId=Joanna`
 - `Engine=neural`
@@ -94,7 +108,7 @@ Default Polly settings:
 
 ### Voice Lambda Environment
 
-The Polly Lambda uses standard AWS credential resolution from the Lambda execution role. Do not hardcode access keys.
+The voice Lambda uses OpenAI for default TTS and standard AWS credential resolution from the Lambda execution role for Polly fallback. Do not hardcode access keys.
 
 Optional environment variables:
 
@@ -110,7 +124,7 @@ POLLY_CLAUSE_BREAK_MS=170
 POLLY_MAX_TEXT_LENGTH=2400
 ```
 
-### Deploying The Polly Lambda
+### Deploying The Sally Lambdas
 
 Install the Lambda dependency inside the `lambda` folder before packaging:
 
@@ -119,7 +133,13 @@ cd lambda
 npm install
 ```
 
-Then package the Lambda folder contents and deploy `polly-sally.mjs` as the handler module for a new function such as `choose-my-rate-sally-voice`. Expose it through API Gateway with `POST` and `OPTIONS` enabled.
+Then package the Lambda folder contents and deploy:
+
+- `openai-sally.mjs` for the Sally brain endpoint
+- `openai-voice.mjs` for the Sally voice endpoint
+- `polly-sally.mjs` only if you want a standalone Polly endpoint as well
+
+Expose the handlers through API Gateway with `POST` and `OPTIONS` enabled.
 
 ### Local Run Notes
 
@@ -130,4 +150,4 @@ npm install
 npm run dev
 ```
 
-For local Polly testing, point `VITE_SALLY_VOICE_API_URL` to your deployed voice endpoint or to a local server that proxies to the Lambda handler.
+For local Sally voice testing, point `VITE_SALLY_VOICE_API_URL` to your deployed voice endpoint or to a local server that proxies to the Lambda handler.

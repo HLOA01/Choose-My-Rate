@@ -1,4 +1,5 @@
 export const SALLY_VOICE_API_URL = import.meta.env.VITE_SALLY_VOICE_API_URL || "";
+export const SALLY_VOICE_PROVIDER_LABEL = import.meta.env.VITE_SALLY_VOICE_PROVIDER_LABEL || "OpenAI Marin with Polly fallback";
 
 export const SALLY_VOICE_STORAGE_KEYS = {
   muted: "choose-my-rate-sally-voice-muted",

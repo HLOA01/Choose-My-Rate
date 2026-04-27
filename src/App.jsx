@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
 import { useSallyVoice } from "./hooks/useSallyVoice";
 import { createEmptyScenario, processSallyMessage } from "./SallyBrain";
@@ -9,6 +9,7 @@ const INITIAL_PROMPT =
   "Hi, I’m Sally. I can help you build your loan scenario and guide you step by step. Are you looking to buy a home, refinance, or take cash out?";
 
 const CHAT_MODE_STORAGE_KEY = "choose-my-rate-sally-chat-mode";
+const INITIAL_CONVERSATION_HISTORY = [{ role: "assistant", content: INITIAL_PROMPT }];
 
 function formatCurrency(value) {
   if (value === "" || value === null || value === undefined) return "—";
@@ -437,6 +438,7 @@ const [scenario, setScenario] = useState(() => ({
   const [prompt, setPrompt] = useState(INITIAL_PROMPT);
   const [lastAnswer, setLastAnswer] = useState("");
   const [input, setInput] = useState("");
+  const [conversationHistory, setConversationHistory] = useState(INITIAL_CONVERSATION_HISTORY);
   const [isListening, setIsListening] = useState(false);
   const [isThinking, setIsThinking] = useState(false);
   const [isUserTyping, setIsUserTyping] = useState(false);
@@ -444,6 +446,7 @@ const [scenario, setScenario] = useState(() => ({
   const [pricingQuote, setPricingQuote] = useState(null);
   const [pricingError, setPricingError] = useState("");
   const [isPricingLoading, setIsPricingLoading] = useState(false);
+  const [pricingRefreshNonce, setPricingRefreshNonce] = useState(0);
   const [selectedOptionId, setSelectedOptionId] = useState("");
   const [rateGuidanceMessage, setRateGuidanceMessage] = useState("");
   const [chatMode, setChatMode] = useState(() => {
@@ -598,7 +601,7 @@ const [scenario, setScenario] = useState(() => ({
       });
 
     return () => controller.abort();
-  }, [enrichedScenario, hasPricingScenario, pricingScenarioPayload]);
+  }, [enrichedScenario, hasPricingScenario, pricingRefreshNonce, pricingScenarioPayload]);
 
   useEffect(() => {
     const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -750,34 +753,68 @@ const [scenario, setScenario] = useState(() => ({
     if (!userText || isThinking) return;
 
     const localResult = processSallyMessage(userText, scenario);
+    const fallbackDetectedIntent = /\b(start over|reset|new scenario|restart)\b/i.test(userText) ? "reset" : "other";
+    const currentScenarioSnapshot = { ...scenario };
+    const currentHistorySnapshot = [...conversationHistory, { role: "user", content: userText }];
 
     setLastAnswer(userText);
     setInput("");
     setIsUserTyping(false);
     setIsThinking(true);
+    setConversationHistory(currentHistorySnapshot);
 
-    let result = localResult;
+    let result = {
+      replyText: localResult.message,
+      detectedIntent: "other",
+      scenarioUpdates: localResult.scenario || {},
+      nextQuestion: "",
+      needsPricingRefresh: false,
+      confidence: "medium",
+    };
 
     if (chatMode === "ai" && hasSallyApi()) {
       try {
         result = await askSallyApi({
-          message: userText,
-          scenario,
+          userMessage: userText,
+          currentScenario: currentScenarioSnapshot,
+          conversationHistory: currentHistorySnapshot,
+          pricingOptions: livePricingOptions,
           localResult,
         });
       } catch (error) {
         console.warn("Sally API fallback:", error);
         result = {
-          ...localResult,
-          message: `${localResult.message} I am using the rule-based guide until the AI connection is ready.`,
+          replyText: `${localResult.message} I am using the rule-based guide until the AI connection is ready.`,
+          detectedIntent: fallbackDetectedIntent,
+          scenarioUpdates: localResult.scenario || {},
+          nextQuestion: "",
+          needsPricingRefresh: false,
+          confidence: "medium",
         };
       }
     }
 
-    setPrompt(result.message);
-    setScenario((prev) => normalizeScenarioAfterBrain({ ...prev, ...result.scenario }));
+    const nextReplyText = String(result.replyText || localResult.message || "Got it.");
+    const nextScenarioUpdates =
+      result.scenarioUpdates && typeof result.scenarioUpdates === "object"
+        ? result.scenarioUpdates
+        : localResult.scenario || {};
+    const isReset = result.detectedIntent === "reset" || fallbackDetectedIntent === "reset";
+
+    setPrompt(nextReplyText);
+    setScenario((prev) =>
+      isReset
+        ? normalizeScenarioAfterBrain(createEmptyScenario())
+        : normalizeScenarioAfterBrain({ ...prev, ...nextScenarioUpdates }),
+    );
+    setConversationHistory((prev) =>
+      isReset ? [{ role: "assistant", content: nextReplyText }] : [...prev, { role: "assistant", content: nextReplyText }],
+    );
     setIsThinking(false);
-    speakSallyMessage(result.message, { allowWhileTyping: true });
+    if (result.needsPricingRefresh) {
+      setPricingRefreshNonce((value) => value + 1);
+    }
+    speakSallyMessage(nextReplyText, { allowWhileTyping: true });
   };
 
   const handleKeyDown = (event) => {
@@ -891,8 +928,8 @@ const [scenario, setScenario] = useState(() => ({
                 {voiceError
                   ? voiceError
                   : voiceAvailable
-                  ? `Sally voice is using AWS Polly Joanna neural.${autoPlay ? " Auto-play is on." : " Auto-play is off."}`
-                  : "Configure the Sally voice API to enable AWS Polly playback."}
+                  ? `Sally voice is using OpenAI Marin with Polly fallback.${autoPlay ? " Auto-play is on." : " Auto-play is off."}`
+                  : "Configure the Sally voice API to enable Sally playback."}
               </div>
               <button
                 type="button"

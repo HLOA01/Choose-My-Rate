@@ -4,7 +4,7 @@ export function hasSallyApi() {
   return Boolean(SALLY_API_URL);
 }
 
-export async function askSallyApi({ message, scenario, localResult }) {
+export async function askSallyApi({ userMessage, currentScenario, conversationHistory, pricingOptions, localResult }) {
   if (!SALLY_API_URL) {
     throw new Error("VITE_SALLY_API_URL is not set");
   }
@@ -15,8 +15,10 @@ export async function askSallyApi({ message, scenario, localResult }) {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      message,
-      scenario,
+      userMessage,
+      currentScenario,
+      conversationHistory,
+      pricingOptions,
       localResult,
     }),
   });
@@ -25,5 +27,18 @@ export async function askSallyApi({ message, scenario, localResult }) {
     throw new Error(`Sally API failed with ${response.status}`);
   }
 
-  return response.json();
+  const payload = await response.json();
+
+  if (payload && typeof payload === "object" && "replyText" in payload) {
+    return payload;
+  }
+
+  return {
+    replyText: String(payload.message || "Got it."),
+    detectedIntent: String(payload.intent || "other"),
+    scenarioUpdates: payload.scenario || {},
+    nextQuestion: "",
+    needsPricingRefresh: false,
+    confidence: "medium",
+  };
 }

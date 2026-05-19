@@ -17,6 +17,10 @@ const envSchema = z.object({
     .string()
     .default("true")
     .transform((value) => value.toLowerCase() === "true"),
+  ENABLE_DEV_PRMG_FALLBACK: z
+    .string()
+    .default("false")
+    .transform((value) => value.toLowerCase() === "true"),
   RUN_MIGRATIONS_ON_START: z
     .string()
     .default("false")

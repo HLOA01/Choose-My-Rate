@@ -1,16 +1,23 @@
 import { pool } from "../db/repositories/db.js";
+import { env } from "../config/env.js";
 import { getPlatformControl } from "../db/repositories/platformControlRepository.js";
 import { getRowsForVersion } from "../db/repositories/pricingRowRepository.js";
 import { getLatestLiveVersion } from "../db/repositories/pricingVersionRepository.js";
 import type { PricingQuoteResponse } from "../types/pricing.js";
 import type { PricingScenario } from "../types/scenario.js";
+import { getDevPrmgPricingForScenario } from "./devPrmgPricing.js";
 import { filterEligiblePrograms } from "./filterEligiblePrograms.js";
 import { getMissingScenarioFields } from "./mapScenarioToProducts.js";
 import { rankBestExecution } from "./rankBestExecution.js";
+import { selectBorrowerRateStackRows } from "./selectBorrowerRateStackRows.js";
 
 export async function getPricingForScenario(
   scenario: Partial<PricingScenario>,
 ): Promise<PricingQuoteResponse> {
+  if (env.ENABLE_DEV_PRMG_FALLBACK) {
+    return getDevPrmgPricingForScenario(scenario);
+  }
+
   const control = await getPlatformControl(pool);
 
   if (control.pricingStatus === "paused") {
@@ -28,11 +35,16 @@ export async function getPricingForScenario(
 
   const missingFields = getMissingScenarioFields(scenario);
   if (missingFields.length) {
+    const zipOnlyMissing = missingFields.length === 1 && missingFields[0] === "zipCode";
     return {
       status: "needs_more_info",
-      banner: control.pricingStatus === "warning" ? control.bannerMessage : null,
+      banner: zipOnlyMissing
+        ? "ZIP needed for more accurate pricing."
+        : control.pricingStatus === "warning" ? control.bannerMessage : null,
       missingFields,
-      message: "More information is needed to generate pricing.",
+      message: zipOnlyMissing
+        ? "ZIP code is needed for more accurate pricing."
+        : "More information is needed to generate pricing.",
       options: [],
       leadCaptureEnabled: control.leadCaptureEnabled,
       callbackEnabled: control.callbackEnabled,
@@ -51,10 +63,12 @@ export async function getPricingForScenario(
     };
   }
 
+  const completeScenario = scenario as PricingScenario;
   const rows = await getRowsForVersion(pool, liveVersion.id);
-  const eligible = filterEligiblePrograms(rows, scenario as PricingScenario);
+  const eligible = filterEligiblePrograms(rows, completeScenario);
+  const rateStackRows = selectBorrowerRateStackRows(eligible, completeScenario);
 
-  if (!eligible.length) {
+  if (!rateStackRows.length) {
     return {
       status: "no_eligible_options",
       banner: control.pricingStatus === "warning" ? control.bannerMessage : null,
@@ -72,7 +86,7 @@ export async function getPricingForScenario(
     banner: control.pricingStatus === "warning" ? control.bannerMessage : null,
     pricingVersionId: liveVersion.id,
     pricingAsOf: liveVersion.publishedAt?.toISOString() ?? liveVersion.createdAt.toISOString(),
-    options: rankBestExecution(eligible, scenario as PricingScenario),
+    options: rankBestExecution(rateStackRows, completeScenario),
     leadCaptureEnabled: control.leadCaptureEnabled,
     callbackEnabled: control.callbackEnabled,
   };

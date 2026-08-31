@@ -1,0 +1,8 @@
+{
+  "name": "choose-my-rate-lambdas",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@aws-sdk/client-polly": "^3.913.0"
+  }
+}

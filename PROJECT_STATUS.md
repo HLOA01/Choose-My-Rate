@@ -1,0 +1,627 @@
+# Choose My Rate Project Status
+
+## Current State
+
+- Root active app: `c:\Users\Owner\OneDrive\Desktop\choose-my-rate`
+- Nested repo not touched: `Choose-My-Rate/`
+- Frontend dev URL: `http://127.0.0.1:5173/`
+- Pricing engine backend: `http://localhost:4100`
+- PRMG-backed pricing engine has been verified healthy.
+
+## Completed Work
+
+- Sally UI extracted into `src/components/sally/SallyPanel.jsx`.
+- Pricing orchestration extracted into `src/hooks/usePricingEngine.js`.
+- Scenario UI extracted into scenario components.
+- Voice-to-text UX improved with microphone inside the input area.
+- Temporary diagnostic logging was removed.
+- FHA vs Conventional comparison foundation added.
+- Manual FHA vs Conventional comparison trigger added.
+- Comparison panel now shows payment, cash-to-close, assumptions, mortgage insurance, and summary sections.
+- FHA vs Conventional comparison uses live pricing for both sides.
+- FHA and Conventional down-payment assumptions are handled separately.
+- Loan purpose configuration utilities added.
+- Scenario normalization is now loan-purpose aware.
+- Sally local question routing is now purpose-aware.
+- Scenario panel changes fields based on loan purpose.
+- Refinance analysis summary foundation added.
+- Refinance/cash-out extraction fixes added for comma-formatted dollar amounts and common borrower phrases.
+- Refinance Comparison Pass 1 completed.
+- Refinance comparison foundation helpers added in `src/utils/refinanceComparison.js`.
+- Refinance comparison hook added in `src/hooks/useRefinanceComparison.js`.
+- Refinance Comparison Pass 2 completed.
+- Read-only refinance comparison panel added in `src/components/RefinanceComparisonPanel.jsx`.
+- Refinance comparison panel is rendered for refinance scenarios without changing Sally behavior.
+- Refinance Comparison Pass 3 completed.
+- Refinance scenario field aliases are normalized for comparison inputs.
+- Refinance defaults now safely include canonical comparison fields.
+- Refinance Comparison Pass 4 completed.
+- Refinance input UI now exposes canonical comparison fields for refinance scenarios.
+- Refinance Comparison Pass 5 completed.
+- Sally can now explain refinance comparison results from controlled refinance prompts.
+- Sally asks for missing refinance inputs instead of guessing comparison results.
+- Refinance Comparison Pass 6 completed.
+- Sally now guides borrowers through missing refinance comparison inputs in a controlled order.
+- Sally can use short borrower replies to fill the next missing refinance field.
+- Refinance Comparison Pass 7 completed.
+- Refinance purpose detail added for lower payment, cash out, debt consolidation, shorten term, and unknown.
+- Sally now references refinance purpose detail during guided collection and refinance explanations.
+- Refinance Comparison Pass 8 completed.
+- Debt consolidation savings helper added for simple monthly cash-flow estimates.
+- Debt consolidation monthly payment input is shown only for debt-consolidation refinance scenarios.
+- Refinance Comparison Pass 9 completed.
+- Borrower-facing refinance summary section added to the read-only refinance comparison panel.
+- Debt consolidation benefit summary now appears in the refinance panel when available.
+- Refinance Comparison Pass 10 completed.
+- Refinance helper outputs hardened for missing, zero, negative, and high cash-out values.
+- Sally and the refinance panel now use clearer wording for incomplete or negative cash-flow outcomes.
+- Refinance Comparison Pass 11 completed.
+- Internal/demo-safe refinance scenario presets added for faster QA and demos.
+- Scenario panel now includes a minimal Demo presets selector.
+- QA scenario test harness added for purchase, refinance, cash-out refinance, debt consolidation refinance, Sally refinance intent, high cash-out warning, and missing-input checks.
+- Refinance Comparison Pass 12 completed.
+- Sally conversation QA harness added for multi-turn refinance-guided data collection.
+- Sally guided refinance collection now keeps explicit new-rate phrases from overwriting the current rate.
+- Sally guided refinance collection now treats bare year replies as the current remaining term when that is the active missing field.
+- Refinance Comparison Pass 13 completed as a browser QA readiness pass.
+- Local dev server responded successfully at `http://127.0.0.1:5173/`, but the in-app browser surface was unavailable in this session, so a full click-through manual browser QA could not be completed.
+- Playwright is recommended for the next pass so purchase, FHA vs Conventional, refinance field visibility, high cash-out warning, and Sally browser flows can be verified repeatably without depending on session browser availability.
+- Refinance Comparison Pass 14 completed.
+- Playwright Chromium browser smoke tests added for app load, purchase controls, FHA vs Conventional comparison, refinance panel/fields, debt-consolidation field visibility, high cash-out warning, and Sally refinance prompt guardrails.
+- Refinance Comparison Pass 15 completed.
+- Playwright browser QA expanded to cover full rate-and-term refinance, full cash-out refinance, full debt-consolidation refinance, Sally guided refinance browser flow, and page-level bad-value guardrails.
+- Pass 16 production readiness review completed.
+- `PRODUCTION_READINESS_REVIEW.md` added with demo readiness, blockers, warnings, disclosure gaps, QA coverage, and recommended next passes.
+- Corrupted empty-value placeholder characters in pricing formatters were replaced with plain `-`.
+- Pass 17 borrower-facing disclosure / compliance guardrail polish completed.
+- Reusable disclosure note component added for pricing, FHA vs Conventional comparison, and refinance comparison panels.
+- Sally refinance explanation guardrails now reference estimates, underwriting eligibility, later lender disclosures, not-a-loan-approval status, and rates not locked.
+- Pass 18 production pricing-engine environment verification completed.
+- `.env.example` added with `VITE_PRICING_ENGINE_API_URL` and local/mock pricing notes.
+- Mock pricing now shows a visible `Demo pricing mode` indicator and a development-only warning banner.
+- Browser QA now runs on a dedicated Playwright dev-server port with `VITE_PRICING_ENGINE_API_URL` blank to verify the no-API safe path.
+- Pass 19 deployment readiness / environment checklist completed.
+- `DEPLOYMENT_READINESS_CHECKLIST.md` added with local development, controlled internal demo, production blockers, required environment variables, pricing-engine verification, mock/demo restrictions, disclosure review, QA, audit, and rollback checks.
+- Pass 20A responsive / mobile / accessibility QA completed.
+- Browser QA now covers desktop `1440x900`, laptop `1280x800`, tablet `768x1024`, and mobile `390x844` responsive smoke checks.
+- Scenario controls now have associated labels, the demo preset selector has an associated label, Sally's text input has an accessible name, and the pricing panel has a stable test id for browser QA.
+- Pass 20B local DB-backed PRMG pricing activation completed.
+- PostgreSQL 16.14 is installed locally, the `choose_my_rate_pricing` database exists, pricing-engine migrations were applied, and PRMG refresh published a live DB pricing version.
+- Local pricing backend API is `http://localhost:4100`; root frontend local env uses `VITE_PRICING_ENGINE_API_URL=http://localhost:4100`.
+- DB-backed pricing success signals were verified: `/health.currentLivePricingVersion` is not null, `/health.lastRefresh.status` is `published`, `/pricing/quote.pricingVersionId` is a DB UUID instead of `dev-prmg-xls`, and no `devPrmgFallback` section appears.
+- Keep `ENABLE_DEV_PRMG_FALLBACK=false` in the local pricing-engine backend when verifying DB-backed pricing. Use dev fallback only intentionally for local fallback demos.
+- Pass 21A internal demo script / founder demo checklist completed.
+- `INTERNAL_DEMO_SCRIPT.md` added with pre-demo startup checks, local commands, purchase/FHA/refinance/Sally demo flow, compliance talking points, public launch blockers, and troubleshooting.
+- Pass 21B cloud deployment plan completed.
+- `CLOUD_DEPLOYMENT_PLAN.md` added with current local architecture, target cloud architecture, Render/Railway/AWS options, recommended controlled-demo path, backend/frontend requirements, managed Postgres setup, verification checklist, security/compliance notes, rollback plan, and open questions for Cesar/Eduardo.
+- Pass 21C Render deployment readiness checklist completed.
+- `RENDER_DEPLOYMENT_CHECKLIST.md` added with Render account prerequisites, required services, backend settings, environment variables, managed Postgres setup, verification checks, frontend connection, security notes, rollback, and open questions.
+- Pass 21D deployment repo structure review completed as a read-only inspection.
+- Current root repo records `Choose-My-Rate/` as a gitlink/submodule-style folder without `.gitmodules`, so deploying the backend from the root repo path is risky.
+- Pass 21E dedicated pricing engine repo prep plan completed.
+- `PRICING_ENGINE_REPO_PREP_PLAN.md` added with the recommended `choose-my-rate-pricing-engine` repo plan, safe copy rules, required files, Render settings, local verification, risks, and mitigation steps.
+- Pass 22A Render pricing backend connection verification completed.
+- Render pricing backend is live at `https://choose-my-rate-pricing-engine.onrender.com`.
+- Cloud `/health` is healthy with a non-null `currentLivePricingVersion` and `lastRefresh.status` of `published`.
+- Cloud `/pricing/quote` returns `status: live`, a DB UUID `pricingVersionId`, 13 pricing options for the safe purchase test, `displayLender: false`, and no borrower-facing lender names.
+- Root local `.env` can point `VITE_PRICING_ENGINE_API_URL` to the Render backend for configured pricing-engine verification.
+- Pass 22B controlled demo readiness final check completed.
+- Controlled internal demo is ready to use the Render pricing backend at `https://choose-my-rate-pricing-engine.onrender.com`.
+- Root local `.env` points to the Render backend for configured pricing-engine verification and must not be committed.
+- `.env.example` remains safe and documents local/configured pricing-engine usage without secrets.
+- Current Render `/health` can show `lastRefresh.status` or `scheduler.lastRunStatus` as `skipped` when no PRMG source-file change is detected after a published live version; this is acceptable when `currentLivePricingVersion` remains non-null and `/pricing/quote` returns `status: live`.
+- Controlled-demo blockers are cleared for internal use, but public borrower launch remains blocked by compliance approval, final production domain/subdomain decisions, Render Postgres plan/expiration review, final lender/licensing disclosure placement, and `xlsx` parser mitigation planning.
+- Pass 23 controlled demo dry run completed.
+- Render-backed local demo rehearsal passed purchase pricing, FHA vs Conventional comparison, rate-and-term refinance, cash-out refinance, debt consolidation refinance, Sally refinance guidance, disclosure visibility, lender-name hiding, and forbidden-wording guardrails.
+- Dry run found one Sally friction point: incomplete refinance explanation prompts could repeat the same missing-field question. The guided refinance response path was tightened so duplicate missing-field questions are avoided and explanation requests with missing fields return a clear missing-input message.
+- Pass 24 demo launch package completed.
+- `CONTROLLED_DEMO_LAUNCH_PACKAGE.md` added as the simple handoff for Cesar, including demo readiness, working flows, public-release blockers, startup checklist, plain-language script, safe talking points, things not to say, Render fallback plan, and suggested internal audience.
+- Pass 25 demo freeze / release checkpoint completed.
+- `CONTROLLED_DEMO_CHECKPOINT.md` added with the approved controlled-demo baseline: frontend commit `10c1cf6fcc7de4f952cced63667a13cf57d25294`, backend commit `4d9665592011e42a7c01655e99bfb4e4828f1879`, Render backend URL, Render pricing verification, QA/build/audit results, approved audience, demo restrictions, public-launch blockers, rollback notes, and checkpoint time.
+- Current Render `/health` is `ok` with live PRMG pricing version `8884e282-8c51-40e4-a18d-d1d60ed642b6`; the latest `/pricing/quote` verification returned `status: live`, 13 options, DB UUID pricing, and `displayLender: false`.
+- Pass 27 internal demo feedback capture completed.
+- `INTERNAL_DEMO_FEEDBACK.md` added with demo audience, demo objective, what to show, reviewer questions, feedback categories, severity levels, a feedback log template, and the after-demo decision checklist.
+- Pass 28 post-demo decision framework completed.
+- `POST_DEMO_DECISION_FRAMEWORK.md` added with feedback classification, decision paths, next feature categories, demo scoring, and go/no-go checklists for Eduardo, wider HLOA internal, partner, and public borrower launch audiences.
+- Pass 29 first internal demo preparation completed.
+- `FIRST_INTERNAL_DEMO_PLAN.md` added with first audience, meeting length, pre-demo checklist, opening statement, flow order, talking points, post-demo questions, feedback capture format, what not to show/say, and post-demo decision options.
+- Pass 30 borrower simplicity / Choose My Rate UX review completed.
+- `BORROWER_SIMPLICITY_UX_REVIEW.md` added with borrower friction points, useful current elements, advanced/internal items to hide, a simplified borrower flow, proposed screen order, Sally role, FHA vs Conventional recommendation, refinance recommendation, and safe implementation passes.
+- Pass 31 borrower rate cards foundation completed.
+- Borrower-facing `BorrowerRateCards` added near the top of the pricing panel using existing pricing-engine options, with simple Lower Payment, Balanced Option, and Lower Upfront Cost cards while preserving the detailed internal pricing table below.
+- Rate card selection logic uses the lowest estimated payment option, the option closest to par/zero points for the balanced card, and the lowest available estimated cash-to-close/upfront option, avoiding duplicate options when possible.
+- Pass 32 borrower goal landing flow completed.
+- `BorrowerGoalLanding` added near the top of the app with four borrower-first choices: Buy a home, Refinance my mortgage, Take cash out, and Compare FHA vs Conventional.
+- Goal selection now updates the existing scenario path without changing pricing math or backend APIs: Buy keeps the purchase/rate-card path, Refinance selects rate-and-term refinance, Take cash out selects cash-out refinance, and FHA vs Conventional opens the existing comparison helper.
+- Existing scenario controls, demo presets, pricing table, refinance panel, and comparison tools remain available below the borrower landing inside a clearly labeled loan-officer details area.
+- Pass 33 borrower journey and memory architecture completed as a documentation/planning pass.
+- `BORROWER_JOURNEY_MEMORY_ARCHITECTURE.md` added with borrower-friendly language rules, guided step-flow direction, Sally side-assistant role, Sally-to-scenario sync requirements, guest/logged-in memory strategy, continue-later experience, HLOA processing handoff architecture, what not to build yet, and safe future implementation passes.
+- Pass 34 borrower-facing language polish completed.
+- Borrower-visible UI and Sally guidance copy now prefers rate options, rates, monthly payment, closing costs, cash to close, loan option, and loan program language instead of "pricing" language in the main borrower flow.
+- Internal code identifiers, API routes, environment variables, and backend-facing pricing terms remain unchanged where they are implementation details.
+- Pass 35 guided step flow foundation completed.
+- `BorrowerGuidedFlow` added above the loan-officer details area with Goal, Home basics, Loan basics, Monthly costs, and Choose your rate steps, plus Next/Back controls and a step indicator.
+- The guided flow reuses the existing borrower goal landing, keeps Sally as helper support, keeps Choose Your Rate cards available in the existing rate-options panel, and leaves advanced/internal scenario controls below in the loan-officer details area.
+- Pass 36 Sally side assistant positioning completed.
+- `SallySideAssistant` added so the guided borrower flow is the primary journey and Sally appears as an optional helper panel for questions, explanations, and summaries.
+- Desktop layout now places the guided borrower flow in the main column with Sally as a secondary side assistant; tablet/mobile layouts stack the guided flow first and Sally below it.
+- Pass 37 Sally-to-scenario field sync completed.
+- Sally's deterministic parser now updates actual purchase scenario fields from common borrower phrases, including purchase price/home value, credit score, down payment percent or amount, loan amount, occupancy, ZIP code, monthly property taxes, monthly homeowners insurance, and HOA dues.
+- Purchase detail messages with extracted scenario updates now use the local Sally acknowledgement path so the visible scenario fields update without requiring the Sally API.
+- Pass 38 scenario save/restore local foundation completed.
+- Local guest drafts now save explicit non-sensitive scenario fields, selected borrower goal, guided flow step, and saved timestamp to `chooseMyRate.guestScenario.v1`.
+- Returning borrowers see a restore prompt with Continue and Start over instead of silent restore; drafts older than seven days or invalid drafts are ignored.
+
+## Current Loan Purpose Support
+
+### Purchase
+
+Scenario panel shows:
+
+- Loan Purpose
+- Purchase Price
+- Down Payment
+- Loan Amount
+- Credit Score
+- Occupancy
+- ZIP Code
+
+### Rate-and-Term Refinance
+
+Scenario panel shows:
+
+- Loan Purpose
+- Refinance Purpose
+- Property Value
+- Current Loan Balance
+- Current Interest Rate
+- Current Loan Term Years
+- Current Remaining Term Years
+- New Loan Amount
+- New Interest Rate
+- New Loan Term Years
+- Estimated Closing Costs
+- Refinance Goal
+- Credit Score
+- Occupancy
+- ZIP Code
+
+Summary cards show:
+
+- Current Payment
+- New Payment
+- Monthly Savings
+
+### Cash-Out Refinance
+
+Scenario panel shows:
+
+- Loan Purpose
+- Refinance Purpose
+- Property Value
+- Current Loan Balance
+- Current Interest Rate
+- Current Loan Term Years
+- Current Remaining Term Years
+- New Loan Amount
+- New Interest Rate
+- New Loan Term Years
+- Estimated Closing Costs
+- Requested Cash Out
+- Cash-Out Purpose
+- Debt Consolidation Amount
+- Current Monthly Debt Payments
+- Cash-Out Goal
+- Credit Score
+- Occupancy
+- ZIP Code
+
+Summary cards show:
+
+- Current Balance
+- Cash Received
+- New Loan Amount
+- Estimated LTV
+
+## Recent Commits
+
+- `a8de37b` Add refinance analysis summaries and extraction fixes
+- `9cb2a66` Add purpose-aware Sally routing and scenario panel
+- `bf7a91a` Add loan purpose aware scenario normalization
+- `801d408` Remove temporary diagnostic logging
+- `bddb18d` Add loan purpose configuration utilities
+- `c09252c` Improve FHA vs Conventional comparison experience
+- `a6521f0` Refine FHA vs Conventional comparison summary
+- `24c0e21` Add manual comparison panel trigger
+
+## Known Notes
+
+- Browser SpeechRecognition can fail with a `network` error. The app now shows a borrower-friendly fallback message.
+- Long-term voice-to-text should likely move to OpenAI transcription for reliability.
+- Purchase pricing behavior has not been intentionally changed.
+- Refinance pricing analysis is foundation-level only; final refinance comparison engine is not built yet.
+- Refinance Comparison Pass 1 build result: `npm.cmd run build` passed.
+- Refinance Comparison Pass 1 files changed:
+  - `src/utils/refinanceComparison.js`
+  - `src/hooks/useRefinanceComparison.js`
+  - `PROJECT_STATUS.md`
+- Refinance Comparison Pass 2 build result: `npm.cmd run build` passed.
+- Refinance Comparison Pass 2 files changed:
+  - `src/components/RefinanceComparisonPanel.jsx`
+  - `src/App.jsx`
+  - `src/App.css`
+  - `PROJECT_STATUS.md`
+- Refinance Comparison Pass 3 build result: `npm.cmd run build` passed.
+- Refinance Comparison Pass 3 files changed:
+  - `src/App.jsx`
+  - `src/components/RefinanceComparisonPanel.jsx`
+  - `src/scenario/scenarioUtils.js`
+  - `src/SallyBrain.js`
+  - `PROJECT_STATUS.md`
+- Refinance Comparison Pass 4 build result: `npm.cmd run build` passed.
+- Refinance Comparison Pass 4 files changed:
+  - `src/scenario/scenarioFields.js`
+  - `src/loanPurpose/loanPurposeConfig.js`
+  - `PROJECT_STATUS.md`
+- Refinance Comparison Pass 5 build result: `npm.cmd run build` passed.
+- Refinance Comparison Pass 5 files changed:
+  - `src/App.jsx`
+  - `PROJECT_STATUS.md`
+- Refinance Comparison Pass 6 build result: `npm.cmd run build` passed.
+- Refinance Comparison Pass 6 files changed:
+  - `src/App.jsx`
+  - `PROJECT_STATUS.md`
+- Refinance Comparison Pass 7 build result: `npm.cmd run build` passed.
+- Refinance Comparison Pass 7 files changed:
+  - `src/App.jsx`
+  - `src/SallyBrain.js`
+  - `src/scenario/scenarioFields.js`
+  - `src/scenario/scenarioUtils.js`
+  - `src/loanPurpose/loanPurposeConfig.js`
+  - `PROJECT_STATUS.md`
+- Refinance Comparison Pass 8 build result: `npm.cmd run build` passed.
+- Refinance Comparison Pass 8 files changed:
+  - `src/utils/debtConsolidationComparison.js`
+  - `src/hooks/useDebtConsolidationComparison.js`
+  - `src/App.jsx`
+  - `src/SallyBrain.js`
+  - `src/scenario/scenarioFields.js`
+  - `src/scenario/scenarioUtils.js`
+  - `src/loanPurpose/loanPurposeConfig.js`
+  - `PROJECT_STATUS.md`
+- Refinance Comparison Pass 9 build result: `npm.cmd run build` passed.
+- Refinance Comparison Pass 9 files changed:
+  - `src/components/RefinanceComparisonPanel.jsx`
+  - `src/App.css`
+  - `PROJECT_STATUS.md`
+- Refinance Comparison Pass 10 build result: `npm.cmd run build` passed.
+- Refinance Comparison Pass 10 files changed:
+  - `src/utils/refinanceComparison.js`
+  - `src/utils/debtConsolidationComparison.js`
+  - `src/components/RefinanceComparisonPanel.jsx`
+  - `src/App.jsx`
+  - `PROJECT_STATUS.md`
+- Refinance Comparison Pass 11 build result: `npm.cmd run build` passed.
+- Refinance Comparison Pass 11 files changed:
+  - `src/scenario/refinancePresets.js`
+  - `src/components/scenario/ScenarioPanel.jsx`
+  - `src/App.jsx`
+  - `src/App.css`
+  - `PROJECT_STATUS.md`
+- QA scenario harness result: `npm.cmd run qa:scenarios` passed with 60/60 scenarios.
+- QA scenario harness build result: `npm.cmd run build` passed.
+- QA scenario harness files changed:
+  - `package.json`
+  - `scripts/esm-loader.mjs`
+  - `scripts/qa-scenarios.mjs`
+  - `PROJECT_STATUS.md`
+- Refinance Comparison Pass 12 QA result: `npm.cmd run qa:scenarios` passed with 60/60 scenarios.
+- Refinance Comparison Pass 12 Sally QA result: `npm.cmd run qa:sally` passed with 10/10 conversation tests.
+- Refinance Comparison Pass 12 build result: `npm.cmd run build` passed.
+- Refinance Comparison Pass 12 files changed:
+  - `src/App.jsx`
+  - `src/SallyBrain.js`
+  - `scripts/qa-sally.mjs`
+  - `package.json`
+  - `PROJECT_STATUS.md`
+- Refinance Comparison Pass 13 QA result: `npm.cmd run qa:scenarios` passed with 60/60 scenarios.
+- Refinance Comparison Pass 13 Sally QA result: `npm.cmd run qa:sally` passed with 10/10 conversation tests.
+- Refinance Comparison Pass 13 build result: `npm.cmd run build` passed.
+- Refinance Comparison Pass 13 browser result: dev server HTTP check passed, but manual browser click-through was blocked because no controllable browser surface was available in the session.
+- Refinance Comparison Pass 13 files changed:
+  - `PROJECT_STATUS.md`
+- Refinance Comparison Pass 14 QA result: `npm.cmd run qa:scenarios` passed with 60/60 scenarios.
+- Refinance Comparison Pass 14 Sally QA result: `npm.cmd run qa:sally` passed with 10/10 conversation tests.
+- Refinance Comparison Pass 14 browser QA result: `npm.cmd run qa:browser` passed with 5/5 browser smoke tests.
+- Refinance Comparison Pass 14 build result: `npm.cmd run build` passed.
+- Refinance Comparison Pass 14 files changed:
+  - `.gitignore`
+  - `package.json`
+  - `package-lock.json`
+  - `playwright.config.js`
+  - `tests/browser/smoke.spec.js`
+  - `src/App.jsx`
+  - `src/components/RefinanceComparisonPanel.jsx`
+  - `src/components/comparison/ComparisonPanel.jsx`
+  - `src/components/sally/SallyPanel.jsx`
+  - `src/components/scenario/ScenarioControl.jsx`
+  - `src/components/scenario/ScenarioPanel.jsx`
+  - `PROJECT_STATUS.md`
+- Refinance Comparison Pass 15 QA result: `npm.cmd run qa:scenarios` passed with 60/60 scenarios.
+- Refinance Comparison Pass 15 Sally QA result: `npm.cmd run qa:sally` passed with 10/10 conversation tests.
+- Refinance Comparison Pass 15 browser QA result: `npm.cmd run qa:browser` passed with 10/10 browser tests.
+- Refinance Comparison Pass 15 build result: `npm.cmd run build` passed.
+- Refinance Comparison Pass 15 files changed:
+  - `tests/browser/smoke.spec.js`
+  - `PROJECT_STATUS.md`
+- Pass 16 QA result: `npm.cmd run qa:scenarios` passed with 60/60 scenarios.
+- Pass 16 Sally QA result: `npm.cmd run qa:sally` passed with 10/10 conversation tests.
+- Pass 16 browser QA result: `npm.cmd run qa:browser` passed with 10/10 browser tests.
+- Pass 16 build result: `npm.cmd run build` passed.
+- Pass 16 files changed:
+  - `PRODUCTION_READINESS_REVIEW.md`
+  - `PROJECT_STATUS.md`
+  - `src/components/pricing/PricingEnginePanel.jsx`
+  - `src/utils/formatters.js`
+- Pass 17 QA result: `npm.cmd run qa:scenarios` passed with 60/60 scenarios.
+- Pass 17 Sally QA result: `npm.cmd run qa:sally` passed with 10/10 conversation tests.
+- Pass 17 browser QA result: `npm.cmd run qa:browser` passed with 10/10 browser tests.
+- Pass 17 build result: `npm.cmd run build` passed.
+- Pass 17 files changed:
+  - `src/components/common/DisclosureNote.jsx`
+  - `src/components/pricing/PricingEnginePanel.jsx`
+  - `src/components/comparison/ComparisonPanel.jsx`
+  - `src/components/RefinanceComparisonPanel.jsx`
+  - `src/App.jsx`
+  - `src/App.css`
+  - `scripts/qa-sally.mjs`
+  - `tests/browser/smoke.spec.js`
+  - `PRODUCTION_READINESS_REVIEW.md`
+  - `PROJECT_STATUS.md`
+- Pass 18 QA result: `npm.cmd run qa:scenarios` passed with 60/60 scenarios.
+- Pass 18 Sally QA result: `npm.cmd run qa:sally` passed with 10/10 conversation tests.
+- Pass 18 browser QA result: `npm.cmd run qa:browser` passed with 10/10 browser tests.
+- Pass 18 build result: `npm.cmd run build` passed.
+- Pass 18 files changed:
+  - `.env.example`
+  - `playwright.config.js`
+  - `src/App.css`
+  - `src/components/pricing/PricingEnginePanel.jsx`
+  - `src/pricingApi.js`
+  - `tests/browser/smoke.spec.js`
+  - `PRODUCTION_READINESS_REVIEW.md`
+  - `PROJECT_STATUS.md`
+- Pass 19 QA result: `npm.cmd run qa:scenarios` passed with 60/60 scenarios.
+- Pass 19 Sally QA result: `npm.cmd run qa:sally` passed with 10/10 conversation tests.
+- Pass 19 browser QA result: `npm.cmd run qa:browser` passed with 10/10 browser tests.
+- Pass 19 build result: `npm.cmd run build` passed.
+- Pass 19 audit result: `npm audit --omit=dev` passed with 0 production dependency vulnerabilities.
+- Pass 19 files changed:
+  - `DEPLOYMENT_READINESS_CHECKLIST.md`
+  - `PRODUCTION_READINESS_REVIEW.md`
+  - `PROJECT_STATUS.md`
+- Pass 20A QA result: `npm.cmd run qa:scenarios` passed with 60/60 scenarios.
+- Pass 20A Sally QA result: `npm.cmd run qa:sally` passed with 10/10 conversation tests.
+- Pass 20A browser QA result: `npm.cmd run qa:browser` passed with 14/14 browser tests.
+- Pass 20A build result: `npm.cmd run build` passed.
+- Pass 20A audit result: `npm.cmd audit --omit=dev` passed with 0 production dependency vulnerabilities.
+- Pass 20A files changed:
+  - `tests/browser/smoke.spec.js`
+  - `src/components/scenario/ScenarioControl.jsx`
+  - `src/components/scenario/ScenarioPanel.jsx`
+  - `src/components/sally/SallyPanel.jsx`
+  - `src/components/pricing/PricingEnginePanel.jsx`
+  - `PRODUCTION_READINESS_REVIEW.md`
+  - `DEPLOYMENT_READINESS_CHECKLIST.md`
+  - `PROJECT_STATUS.md`
+- Pass 20B local DB-backed pricing activation result:
+  - PostgreSQL 16.14 local database: `choose_my_rate_pricing`
+  - Backend local API: `http://localhost:4100`
+  - Frontend local env: `VITE_PRICING_ENGINE_API_URL=http://localhost:4100`
+  - `/health.currentLivePricingVersion`: not null
+  - `/health.lastRefresh.status`: `published`
+  - `/pricing/quote.pricingVersionId`: DB UUID, not `dev-prmg-xls`
+  - Frontend pricing panel: `CONFIGURED PRICING ENGINE`, not `Demo pricing mode`
+- Pass 20B QA result: `npm.cmd run qa:scenarios` passed with 60/60 scenarios.
+- Pass 20B Sally QA result: `npm.cmd run qa:sally` passed with 10/10 conversation tests.
+- Pass 20B browser QA result: `npm.cmd run qa:browser` passed with 14/14 browser tests.
+- Pass 20B build result: `npm.cmd run build` passed.
+- Pass 20B audit result: `npm.cmd audit --omit=dev` passed with 0 production dependency vulnerabilities.
+- Pass 20B documentation files changed:
+  - `PROJECT_STATUS.md`
+  - `PRODUCTION_READINESS_REVIEW.md`
+  - `DEPLOYMENT_READINESS_CHECKLIST.md`
+- Pass 21A QA result: `npm.cmd run qa:scenarios` passed with 60/60 scenarios.
+- Pass 21A Sally QA result: `npm.cmd run qa:sally` passed with 10/10 conversation tests.
+- Pass 21A browser QA result: `npm.cmd run qa:browser` passed with 14/14 browser tests.
+- Pass 21A build result: `npm.cmd run build` passed.
+- Pass 21A audit result: `npm.cmd audit --omit=dev` passed with 0 production dependency vulnerabilities.
+- Pass 21A files changed:
+  - `INTERNAL_DEMO_SCRIPT.md`
+  - `PROJECT_STATUS.md`
+  - `DEPLOYMENT_READINESS_CHECKLIST.md`
+- Pass 21B QA result: `npm.cmd run qa:scenarios` passed with 60/60 scenarios.
+- Pass 21B Sally QA result: `npm.cmd run qa:sally` passed with 10/10 conversation tests.
+- Pass 21B browser QA result: `npm.cmd run qa:browser` passed with 14/14 browser tests.
+- Pass 21B build result: `npm.cmd run build` passed.
+- Pass 21B audit result: `npm.cmd audit --omit=dev` passed with 0 production dependency vulnerabilities.
+- Pass 21B files changed:
+  - `CLOUD_DEPLOYMENT_PLAN.md`
+  - `PROJECT_STATUS.md`
+  - `DEPLOYMENT_READINESS_CHECKLIST.md`
+- Pass 21C QA result: `npm.cmd run qa:scenarios` passed with 60/60 scenarios.
+- Pass 21C Sally QA result: `npm.cmd run qa:sally` passed with 10/10 conversation tests.
+- Pass 21C browser QA result: `npm.cmd run qa:browser` passed with 14/14 browser tests.
+- Pass 21C build result: `npm.cmd run build` passed.
+- Pass 21C audit result: `npm.cmd audit --omit=dev` passed with 0 production dependency vulnerabilities.
+- Pass 21C files changed:
+  - `RENDER_DEPLOYMENT_CHECKLIST.md`
+  - `PROJECT_STATUS.md`
+  - `DEPLOYMENT_READINESS_CHECKLIST.md`
+  - `CLOUD_DEPLOYMENT_PLAN.md`
+- Pass 21E QA result: `npm.cmd run qa:scenarios` passed with 60/60 scenarios.
+- Pass 21E Sally QA result: `npm.cmd run qa:sally` passed with 10/10 conversation tests.
+- Pass 21E browser QA result: `npm.cmd run qa:browser` passed with 14/14 browser tests.
+- Pass 21E build result: `npm.cmd run build` passed.
+- Pass 21E audit result: `npm.cmd audit --omit=dev` passed with 0 production dependency vulnerabilities.
+- Pass 21E files changed:
+  - `PRICING_ENGINE_REPO_PREP_PLAN.md`
+  - `PROJECT_STATUS.md`
+  - `CLOUD_DEPLOYMENT_PLAN.md`
+  - `RENDER_DEPLOYMENT_CHECKLIST.md`
+- Pass 22A QA result: `npm.cmd run qa:scenarios` passed with 60/60 scenarios.
+- Pass 22A Sally QA result: `npm.cmd run qa:sally` passed with 10/10 conversation tests.
+- Pass 22A browser QA result: `npm.cmd run qa:browser` passed with 14/14 browser tests. This suite intentionally blanks `VITE_PRICING_ENGINE_API_URL` to validate Demo pricing mode.
+- Pass 22A Render-backed frontend smoke result: local frontend with `VITE_PRICING_ENGINE_API_URL=https://choose-my-rate-pricing-engine.onrender.com` showed configured pricing engine, did not show Demo pricing mode or fallback banner, and populated 13 pricing options from the Render backend.
+- Pass 22A build result: `npm.cmd run build` passed.
+- Pass 22A audit result: `npm.cmd audit --omit=dev` passed with 0 production dependency vulnerabilities.
+- Pass 22A files changed:
+  - `PROJECT_STATUS.md`
+  - `DEPLOYMENT_READINESS_CHECKLIST.md`
+  - `CLOUD_DEPLOYMENT_PLAN.md`
+  - `RENDER_DEPLOYMENT_CHECKLIST.md`
+- Pass 22B QA result: `npm.cmd run qa:scenarios` passed with 60/60 scenarios.
+- Pass 22B Sally QA result: `npm.cmd run qa:sally` passed with 10/10 conversation tests.
+- Pass 22B browser QA result: `npm.cmd run qa:browser` passed with 14/14 browser tests. This suite intentionally blanks `VITE_PRICING_ENGINE_API_URL` to validate Demo pricing mode.
+- Pass 22B Render-backed frontend smoke result: local frontend with `VITE_PRICING_ENGINE_API_URL=https://choose-my-rate-pricing-engine.onrender.com` showed configured pricing engine, did not show Demo pricing mode or fallback banner, and populated 13 pricing options from the Render backend.
+- Pass 22B build result: `npm.cmd run build` passed.
+- Pass 22B audit result: `npm.cmd audit --omit=dev` passed with 0 production dependency vulnerabilities.
+- Pass 22B files changed:
+  - `PROJECT_STATUS.md`
+  - `INTERNAL_DEMO_SCRIPT.md`
+  - `PRODUCTION_READINESS_REVIEW.md`
+  - `DEPLOYMENT_READINESS_CHECKLIST.md`
+- Pass 23 QA result: `npm.cmd run qa:scenarios` passed with 60/60 scenarios.
+- Pass 23 Sally QA result: `npm.cmd run qa:sally` passed with 10/10 conversation tests.
+- Pass 23 browser QA result: `npm.cmd run qa:browser` passed with 14/14 browser tests.
+- Pass 23 Render-backed dry run result: local frontend with `VITE_PRICING_ENGINE_API_URL=https://choose-my-rate-pricing-engine.onrender.com` passed 23/23 rehearsal checks with configured pricing engine shown, Demo pricing mode hidden, 13 pricing options populated, disclosures visible, lender names hidden, and Sally guardrails intact.
+- Pass 23 build result: `npm.cmd run build` passed.
+- Pass 23 audit result: `npm.cmd audit --omit=dev` passed with 0 production dependency vulnerabilities.
+- Pass 23 files changed:
+  - `src/App.jsx`
+  - `PROJECT_STATUS.md`
+  - `INTERNAL_DEMO_SCRIPT.md`
+- Pass 24 QA result: `npm.cmd run qa:scenarios` passed with 60/60 scenarios.
+- Pass 24 Sally QA result: `npm.cmd run qa:sally` passed with 10/10 conversation tests.
+- Pass 24 browser QA result: `npm.cmd run qa:browser` passed with 14/14 browser tests.
+- Pass 24 build result: `npm.cmd run build` passed.
+- Pass 24 audit result: `npm.cmd audit --omit=dev` passed with 0 production dependency vulnerabilities.
+- Pass 24 files changed:
+  - `CONTROLLED_DEMO_LAUNCH_PACKAGE.md`
+  - `PROJECT_STATUS.md`
+- Pass 25 QA result: `npm.cmd run qa:scenarios` passed with 60/60 scenarios.
+- Pass 25 Sally QA result: `npm.cmd run qa:sally` passed with 10/10 conversation tests.
+- Pass 25 browser QA result: `npm.cmd run qa:browser` passed with 14/14 browser tests.
+- Pass 25 build result: `npm.cmd run build` passed.
+- Pass 25 audit result: `npm.cmd audit --omit=dev` passed with 0 production dependency vulnerabilities.
+- Pass 25 Render verification result: `/health` returned `status: ok`; `/pricing/quote` returned `status: live`, pricing version `8884e282-8c51-40e4-a18d-d1d60ed642b6`, 13 options, and hidden lender display.
+- Pass 25 files changed:
+  - `CONTROLLED_DEMO_CHECKPOINT.md`
+  - `PROJECT_STATUS.md`
+- Pass 27 QA result: `npm.cmd run qa:scenarios` passed with 60/60 scenarios.
+- Pass 27 Sally QA result: `npm.cmd run qa:sally` passed with 10/10 conversation tests.
+- Pass 27 browser QA result: `npm.cmd run qa:browser` passed with 14/14 browser tests.
+- Pass 27 build result: `npm.cmd run build` passed.
+- Pass 27 audit result: `npm.cmd audit --omit=dev` passed with 0 production dependency vulnerabilities.
+- Pass 27 files changed:
+  - `INTERNAL_DEMO_FEEDBACK.md`
+  - `PROJECT_STATUS.md`
+- Pass 28 QA result: `npm.cmd run qa:scenarios` passed with 60/60 scenarios.
+- Pass 28 Sally QA result: `npm.cmd run qa:sally` passed with 10/10 conversation tests.
+- Pass 28 browser QA result: `npm.cmd run qa:browser` passed with 14/14 browser tests.
+- Pass 28 build result: `npm.cmd run build` passed.
+- Pass 28 audit result: `npm.cmd audit --omit=dev` passed with 0 production dependency vulnerabilities.
+- Pass 28 files changed:
+  - `POST_DEMO_DECISION_FRAMEWORK.md`
+  - `PROJECT_STATUS.md`
+- Pass 29 QA result: `npm.cmd run qa:scenarios` passed with 60/60 scenarios.
+- Pass 29 Sally QA result: `npm.cmd run qa:sally` passed with 10/10 conversation tests.
+- Pass 29 browser QA result: `npm.cmd run qa:browser` passed with 14/14 browser tests.
+- Pass 29 build result: `npm.cmd run build` passed.
+- Pass 29 audit result: `npm.cmd audit --omit=dev` passed with 0 production dependency vulnerabilities.
+- Pass 29 files changed:
+  - `FIRST_INTERNAL_DEMO_PLAN.md`
+  - `PROJECT_STATUS.md`
+- Pass 30 QA result: `npm.cmd run qa:scenarios` passed with 60/60 scenarios.
+- Pass 30 Sally QA result: `npm.cmd run qa:sally` passed with 10/10 conversation tests.
+- Pass 30 browser QA result: `npm.cmd run qa:browser` passed with 14/14 browser tests.
+- Pass 30 build result: `npm.cmd run build` passed.
+- Pass 30 audit result: `npm.cmd audit --omit=dev` passed with 0 production dependency vulnerabilities.
+- Pass 30 files changed:
+  - `BORROWER_SIMPLICITY_UX_REVIEW.md`
+  - `PROJECT_STATUS.md`
+- Pass 31 QA result: `npm.cmd run qa:scenarios` passed with 60/60 scenarios.
+- Pass 31 Sally QA result: `npm.cmd run qa:sally` passed with 10/10 conversation tests.
+- Pass 31 browser QA result: `npm.cmd run qa:browser` passed with 14/14 browser tests.
+- Pass 31 build result: `npm.cmd run build` passed.
+- Pass 31 audit result: `npm.cmd audit --omit=dev` passed with 0 production dependency vulnerabilities.
+- Pass 31 Render-backed smoke result: local frontend with `VITE_PRICING_ENGINE_API_URL=https://choose-my-rate-pricing-engine.onrender.com` showed configured pricing, did not show Demo pricing mode, rendered the borrower rate card section, populated 13 options, showed no lender names, and kept the estimates/not-locked/not-approval disclosure visible.
+- Pass 31 files changed:
+  - `src/components/pricing/BorrowerRateCards.jsx`
+  - `src/components/pricing/PricingEnginePanel.jsx`
+  - `src/App.css`
+  - `tests/browser/smoke.spec.js`
+  - `PROJECT_STATUS.md`
+- Pass 32 QA result: `npm.cmd run qa:scenarios` passed with 60/60 scenarios.
+- Pass 32 Sally QA result: `npm.cmd run qa:sally` passed with 10/10 conversation tests.
+- Pass 32 browser QA result: `npm.cmd run qa:browser` passed with 14/14 browser tests.
+- Pass 32 build result: `npm.cmd run build` passed.
+- Pass 32 audit result: `npm.cmd audit --omit=dev` passed with 0 production dependency vulnerabilities.
+- Pass 32 Render-backed smoke result: local frontend with `VITE_PRICING_ENGINE_API_URL=https://choose-my-rate-pricing-engine.onrender.com` showed the borrower goal landing, configured pricing, no Demo pricing mode, borrower rate cards, 13 pricing options, no lender names, visible estimates/not-locked/not-approval disclosure, and FHA vs Conventional opening from the borrower goal card.
+- Pass 32 files changed:
+  - `src/components/borrower/BorrowerGoalLanding.jsx`
+  - `src/App.jsx`
+  - `src/App.css`
+  - `tests/browser/smoke.spec.js`
+  - `PROJECT_STATUS.md`
+- Pass 33 QA result: `npm.cmd run qa:scenarios` passed with 60/60 scenarios.
+- Pass 33 Sally QA result: `npm.cmd run qa:sally` passed with 10/10 conversation tests.
+- Pass 33 browser QA result: `npm.cmd run qa:browser` passed with 14/14 browser tests.
+- Pass 33 build result: `npm.cmd run build` passed.
+- Pass 33 audit result: `npm.cmd audit --omit=dev` passed with 0 production dependency vulnerabilities.
+- Pass 33 files changed:
+  - `BORROWER_JOURNEY_MEMORY_ARCHITECTURE.md`
+  - `PROJECT_STATUS.md`
+- Pass 34 QA result: `npm.cmd run qa:scenarios` passed with 60/60 scenarios.
+- Pass 34 Sally QA result: `npm.cmd run qa:sally` passed with 10/10 conversation tests.
+- Pass 34 browser QA result: `npm.cmd run qa:browser` passed with 14/14 browser tests.
+- Pass 34 build result: `npm.cmd run build` passed.
+- Pass 34 audit result: `npm.cmd audit --omit=dev` passed with 0 production dependency vulnerabilities.
+- Pass 34 Render-backed smoke result: local frontend with `VITE_PRICING_ENGINE_API_URL=https://choose-my-rate-pricing-engine.onrender.com` showed borrower goal landing, borrower rate cards, `CONNECTED RATE OPTIONS`, 13 options, no lender names, visible disclosures, and no visible "pricing" wording in the main rate panel.
+- Pass 35 QA result: `npm.cmd run qa:scenarios` passed with 60/60 scenarios.
+- Pass 35 Sally QA result: `npm.cmd run qa:sally` passed with 10/10 conversation tests.
+- Pass 35 browser QA result: `npm.cmd run qa:browser` passed with 14/14 browser tests after the expected elevated rerun for Windows test-results permissions.
+- Pass 35 build result: `npm.cmd run build` passed after the expected elevated rerun for Windows `spawn EPERM`.
+- Pass 35 audit result: `npm.cmd audit --omit=dev` passed with 0 production dependency vulnerabilities.
+- Pass 35 Render-backed smoke result: local frontend with `VITE_PRICING_ENGINE_API_URL=https://choose-my-rate-pricing-engine.onrender.com` showed the borrower guided flow, connected rate options, borrower rate cards, 13 options, no lender names, visible disclosures, and no visible "pricing" wording in the guided borrower flow.
+- Pass 36 QA result: `npm.cmd run qa:scenarios` passed with 60/60 scenarios.
+- Pass 36 Sally QA result: `npm.cmd run qa:sally` passed with 10/10 conversation tests.
+- Pass 36 browser QA result: `npm.cmd run qa:browser` passed with 14/14 browser tests after the expected elevated rerun for Windows test-results permissions.
+- Pass 36 build result: `npm.cmd run build` passed after the expected elevated rerun for Windows `spawn EPERM`.
+- Pass 36 audit result: `npm.cmd audit --omit=dev` passed with 0 production dependency vulnerabilities.
+- Pass 36 Render-backed smoke result: local frontend with `VITE_PRICING_ENGINE_API_URL=https://choose-my-rate-pricing-engine.onrender.com` showed the guided borrower flow as primary, Sally side assistant visible, connected rate options, borrower rate cards, 13 options, no lender names, visible disclosures, and no visible "pricing" wording in the main borrower flow.
+- Pass 37 QA result: `npm.cmd run qa:scenarios` passed with 60/60 scenarios.
+- Pass 37 Sally QA result: `npm.cmd run qa:sally` passed with 11/11 conversation tests, including purchase scenario sync from one natural-language borrower message.
+- Pass 37 browser QA result: `npm.cmd run qa:browser` passed with 15/15 browser tests after the expected elevated rerun for Windows test-results permissions.
+- Pass 37 build result: `npm.cmd run build` passed after the expected elevated rerun for Windows `spawn EPERM`.
+- Pass 37 audit result: `npm.cmd audit --omit=dev` passed with 0 production dependency vulnerabilities.
+- Pass 37 Render-backed smoke result: local frontend with `VITE_PRICING_ENGINE_API_URL=https://choose-my-rate-pricing-engine.onrender.com` let Sally update visible purchase scenario fields from borrower text, showed guided flow and Sally side assistant, loaded connected rate options, showed borrower rate cards, confirmed 13 options, hid lender names, kept disclosures visible, and avoided visible "pricing" wording in the main borrower flow.
+- Pass 38 QA result: `npm.cmd run qa:scenarios` passed with 60/60 scenarios.
+- Pass 38 Sally QA result: `npm.cmd run qa:sally` passed with 11/11 conversation tests.
+- Pass 38 browser QA result: `npm.cmd run qa:browser` passed with 16/16 browser tests after the expected elevated rerun for Windows test-results permissions.
+- Pass 38 build result: `npm.cmd run build` passed after the expected elevated rerun for Windows `spawn EPERM`.
+- Pass 38 audit result: `npm.cmd audit --omit=dev` passed with 0 production dependency vulnerabilities.
+- Pass 38 Render-backed smoke result: local frontend with `VITE_PRICING_ENGINE_API_URL=https://choose-my-rate-pricing-engine.onrender.com` saved a local scenario draft, showed the restore prompt after reload, restored fields/flow with Continue, loaded connected rate options, showed borrower rate cards, confirmed 13 options, hid lender names, kept disclosures visible, and avoided visible "pricing" wording in the main borrower flow.
+- Nested `Choose-My-Rate/` still appears dirty and should not be touched unless explicitly requested.
+
+## Suggested Next Priorities
+
+1. Use `BORROWER_SIMPLICITY_UX_REVIEW.md` to plan the borrower-first Choose My Rate simplification before broader demos.
+2. Use `FIRST_INTERNAL_DEMO_PLAN.md` to run the first Eduardo/trusted-reviewer demo.
+3. Use `INTERNAL_DEMO_FEEDBACK.md` to capture Eduardo/internal reviewer feedback during the controlled demo.
+4. Use `POST_DEMO_DECISION_FRAMEWORK.md` to decide whether to widen the internal demo, fix issues, prepare compliance review, plan production launch, or return to feature development.
+5. Use `CONTROLLED_DEMO_CHECKPOINT.md` and `CONTROLLED_DEMO_LAUNCH_PACKAGE.md` for the controlled internal demo handoff.
+6. Configure the hosted frontend environment with `VITE_PRICING_ENGINE_API_URL=https://choose-my-rate-pricing-engine.onrender.com` when the frontend host is selected.
+7. Confirm compliance timing and lender/licensing disclosure placement before borrower-facing release.
+8. Review Render Postgres plan, expiration, backups, and upgrade path before any longer-running public pilot.
+9. Plan the `xlsx` parser mitigation before public production scale.

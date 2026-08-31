@@ -108,6 +108,7 @@ test("app loads with current-main purchase controls", async ({ page }) => {
   await expect(page.locator(".scenario-control-label", { hasText: "Loan Purpose" })).toBeVisible();
   await expect(page.locator(".scenario-control-label", { hasText: "Purchase Price" })).toBeVisible();
   await expect(page.locator(".scenario-control-label", { hasText: "Down Payment" })).toBeVisible();
+  await expect(page.locator(".scenario-control-label", { hasText: "ZIP Code" })).toBeVisible();
   await expectNoBadPageText(page);
 });
 
@@ -149,6 +150,7 @@ test("manual purchase scenario updates local payment estimate without external c
   await fillScenarioInput(page, "Purchase Price", "450000");
   await fillScenarioInput(page, "Down Payment", "22500");
   await fillScenarioInput(page, "Credit Score", "720");
+  await fillScenarioInput(page, "ZIP Code", "92660");
   await page.getByTestId("borrower-submit-scenario").click();
 
   await expect(page.locator(".payment-value")).not.toHaveText("");
@@ -179,6 +181,7 @@ test("refinance selection swaps purchase fields for value and loan amount", asyn
   await fillScenarioInput(page, "Estimated Value", "650000");
   await fillScenarioInput(page, "Loan Amount", "400000");
   await fillScenarioInput(page, "Credit Score", "740");
+  await fillScenarioInput(page, "ZIP Code", "92660");
 
   await expect(page.locator(".payment-value")).not.toHaveText("");
   await expectNoBadPageText(page);
@@ -203,6 +206,7 @@ test("FHA versus Conventional comparison opens through live pricing boundary", a
   await fillScenarioInput(page, "Purchase Price", "450000");
   await fillScenarioInput(page, "Down Payment", "22500");
   await fillScenarioInput(page, "Credit Score", "720");
+  await fillScenarioInput(page, "ZIP Code", "92660");
   await page.getByTestId("fha-conventional-compare").click();
 
   await expect(page.getByTestId("loan-comparison-panel")).toBeVisible();

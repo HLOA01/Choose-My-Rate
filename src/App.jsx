@@ -121,6 +121,11 @@ function getScenarioFields(scenario) {
       label: "Credit Score",
       type: "number",
     },
+    {
+      key: "zipCode",
+      label: "ZIP Code",
+      type: "number",
+    },
   ];
 
   if (scenario.loanPurpose === "refinance" || scenario.loanPurpose === "cash_out") {
@@ -134,6 +139,7 @@ function getScenarioFields(scenario) {
       common[2],
       common[3],
       common[1],
+      common[4],
     ];
   }
 
@@ -152,6 +158,7 @@ function getScenarioFields(scenario) {
     common[2],
     common[3],
     common[1],
+    common[4],
   ];
 }
 
@@ -290,7 +297,7 @@ function buildPricingScenario(scenario) {
 }
 
 function hasMinimumPricingScenario(payload) {
-  return Boolean(payload.loanAmount && payload.creditScore && payload.occupancy && payload.loanPurpose);
+  return Boolean(payload.loanAmount && payload.creditScore && payload.occupancy && payload.loanPurpose && payload.zipCode);
 }
 
 function adaptPricingOptionToPanel(option, scenario, fallbackPricing) {
@@ -639,7 +646,7 @@ export default function App() {
 
       if (!hasPricingScenario) {
         setPricingQuote(null);
-        setPricingError("Add loan amount and credit score to get live pricing.");
+        setPricingError("Add loan amount, credit score, and ZIP Code to get live pricing.");
         setIsPricingLoading(false);
         setRateGuidanceMessage("");
         previousPricingSelectionRef.current = null;
@@ -914,6 +921,7 @@ export default function App() {
       "currentLoanBalance",
       "currentInterestRate",
       "currentRemainingTermYears",
+      "zipCode",
       "newLoanAmount",
       "newInterestRate",
       "newLoanTermYears",

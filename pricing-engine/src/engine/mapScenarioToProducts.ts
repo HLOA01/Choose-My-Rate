@@ -8,6 +8,7 @@ export function getMissingScenarioFields(scenario: Partial<PricingScenario>) {
   if (!scenario.occupancy) missing.push("occupancy");
   if (!scenario.loanPurpose) missing.push("loanPurpose");
   if (!scenario.purchasePrice || scenario.purchasePrice <= 0) missing.push("purchasePrice");
+  if (!scenario.zipCode) missing.push("zipCode");
 
   return missing;
 }

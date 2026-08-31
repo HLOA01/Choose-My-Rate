@@ -14,16 +14,24 @@ const scenarioSchema = z.object({
     .optional(),
   propertyType: z.string().default("single_family"),
   zipCode: z.string().default(""),
+  areaZip: z.string().optional(),
   downPayment: z.coerce.number().nullable().optional(),
   ltv: z.coerce.number().nullable().optional(),
   language: z.enum(["en", "es"]).nullable().optional(),
-});
+}).transform(({ areaZip, ...scenario }) => ({
+  ...scenario,
+  zipCode: scenario.zipCode || areaZip || "",
+}));
+
+export function parsePricingScenario(input: unknown) {
+  return scenarioSchema.parse(input);
+}
 
 export const pricingRouter = Router();
 
 pricingRouter.post("/quote", async (req, res, next) => {
   try {
-    const scenario = scenarioSchema.parse(req.body);
+    const scenario = parsePricingScenario(req.body);
     const response = await getPricingForScenario(scenario);
     res.json(response);
   } catch (error) {

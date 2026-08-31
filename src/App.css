@@ -1129,3 +1129,304 @@ button.pricing-table-row {
     font-size: 30px;
   }
 }
+
+.borrower-journey-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(320px, 0.75fr);
+  gap: 22px;
+  align-items: stretch;
+  margin-bottom: 24px;
+}
+
+.borrower-main-flow,
+.sally-side-assistant,
+.saved-scenario-restore,
+.comparison-panel,
+.borrower-rate-cards {
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(8, 13, 29, 0.72);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.24);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+
+.borrower-main-flow,
+.sally-side-assistant,
+.saved-scenario-restore,
+.comparison-panel {
+  border-radius: 8px;
+  padding: 18px;
+}
+
+.borrower-guided-flow {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.borrower-flow-header,
+.borrower-rate-cards-header,
+.comparison-header,
+.saved-scenario-restore {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.borrower-flow-header h1,
+.borrower-goal-copy h1,
+.borrower-step-panel h2,
+.sally-helper-copy h2 {
+  margin: 6px 0;
+  letter-spacing: 0;
+}
+
+.borrower-flow-header p,
+.borrower-goal-copy p,
+.borrower-step-panel p,
+.sally-helper-copy p,
+.borrower-rate-cards-header p,
+.borrower-rate-card p,
+.borrower-step-note,
+.borrower-rate-disclosure {
+  color: #cbd5e1;
+  line-height: 1.5;
+}
+
+.borrower-step-indicator,
+.borrower-goal-grid,
+.borrower-step-grid,
+.borrower-rate-card-grid,
+.comparison-sides,
+.comparison-payment-grid,
+.comparison-summary,
+.comparison-assumptions-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.borrower-step-indicator {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.borrower-step-pill,
+.borrower-goal-card,
+.borrower-rate-card,
+.borrower-flow-button,
+.comparison-close-btn {
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.88);
+  color: #ffffff;
+  cursor: pointer;
+}
+
+.borrower-step-pill {
+  min-height: 46px;
+  padding: 8px;
+  font-weight: 800;
+}
+
+.borrower-step-pill span {
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  margin-right: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.borrower-step-pill.active,
+.borrower-goal-card.selected,
+.borrower-rate-card.selected {
+  border-color: rgba(248, 214, 104, 0.84);
+  box-shadow: 0 0 0 2px rgba(248, 214, 104, 0.16);
+}
+
+.borrower-goal-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.borrower-goal-card,
+.borrower-rate-card {
+  padding: 14px;
+  text-align: left;
+}
+
+.borrower-goal-card strong,
+.borrower-goal-card span,
+.borrower-rate-card strong,
+.borrower-rate-card span {
+  display: block;
+}
+
+.borrower-step-panel {
+  min-height: 230px;
+  padding: 18px;
+  border-radius: 8px;
+  background: rgba(2, 6, 23, 0.52);
+}
+
+.borrower-step-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.borrower-step-value,
+.comparison-metric,
+.comparison-assumption-row,
+.comparison-summary-item,
+.refinance-summary-card {
+  padding: 12px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.borrower-step-value span,
+.comparison-metric span,
+.comparison-summary-item span,
+.refinance-summary-card span {
+  display: block;
+  color: #cbd5e1;
+  font-size: 12px;
+}
+
+.borrower-flow-actions,
+.borrower-submit-row,
+.scenario-action-row,
+.saved-scenario-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.borrower-flow-button {
+  min-width: 96px;
+  padding: 10px 14px;
+  font-weight: 800;
+}
+
+.borrower-flow-button.secondary {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.borrower-submit-row {
+  margin-top: 16px;
+}
+
+.borrower-submit-btn {
+  width: 100%;
+}
+
+.sally-side-assistant {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.sally-helper-panel .sally-section {
+  margin: 0;
+  padding: 0;
+}
+
+.pricing-column {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.borrower-rate-cards {
+  margin: 16px 0;
+  padding: 16px;
+  border-radius: 8px;
+}
+
+.borrower-rate-card-grid,
+.comparison-sides,
+.comparison-payment-grid,
+.comparison-summary,
+.comparison-assumptions-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.borrower-rate-card-main span {
+  font-size: 28px;
+  font-weight: 900;
+  color: #f8d668;
+}
+
+.borrower-rate-card-details {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.borrower-rate-empty,
+.comparison-status,
+.comparison-side-message {
+  color: #cbd5e1;
+}
+
+.comparison-side-card,
+.comparison-payment-summary,
+.comparison-assumptions-summary {
+  padding: 14px;
+  border-radius: 8px;
+  background: rgba(2, 6, 23, 0.46);
+}
+
+.comparison-side-label,
+.comparison-payment-summary-title,
+.comparison-assumptions-title {
+  margin-bottom: 10px;
+  font-weight: 900;
+}
+
+.comparison-assumption-row,
+.comparison-assumption-chip {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.disclosure-note {
+  margin: 12px 0;
+  color: #cbd5e1;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.saved-scenario-restore {
+  margin-bottom: 18px;
+}
+
+@media (max-width: 1040px) {
+  .borrower-journey-layout,
+  .bottom-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .borrower-rate-card-grid,
+  .comparison-sides,
+  .comparison-payment-grid,
+  .comparison-summary {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 760px) {
+  .borrower-step-indicator,
+  .borrower-goal-grid,
+  .borrower-step-grid,
+  .comparison-assumptions-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .borrower-flow-header,
+  .borrower-rate-cards-header,
+  .comparison-header,
+  .saved-scenario-restore {
+    flex-direction: column;
+  }
+}

@@ -18,7 +18,7 @@ export default defineConfig({
   webServer: {
     command: `npm.cmd run dev -- --host 127.0.0.1 --port ${qaPort} --strictPort`,
     env: {
-      VITE_PRICING_ENGINE_API_URL: "",
+      VITE_PRICING_ENGINE_API_URL: qaBaseUrl.replace(/\/$/, "") + "/__qa-pricing",
       VITE_SALLY_API_URL: "",
       VITE_SALLY_VOICE_API_URL: "",
     },

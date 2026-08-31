@@ -1,5 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
+import { BorrowerGuidedFlow } from "./components/borrower/BorrowerGuidedFlow";
+import { SallySideAssistant } from "./components/borrower/SallySideAssistant";
+import { SavedScenarioRestore } from "./components/borrower/SavedScenarioRestore";
+import { ComparisonPanel } from "./components/comparison/ComparisonPanel";
+import { BorrowerRateCards } from "./components/pricing/BorrowerRateCards";
+import { RefinanceComparisonPanel } from "./components/RefinanceComparisonPanel";
+import { buildScenarioVariant } from "./comparison/comparisonUtils";
+import { clearGuestScenarioDraft, readGuestScenarioDraft, saveGuestScenarioDraft } from "./scenario/scenarioStorage";
+import { useScenarioComparison } from "./hooks/useScenarioComparison";
 import { useSallyVoice } from "./hooks/useSallyVoice";
 import { createEmptyScenario, processSallyMessage } from "./SallyBrain";
 import { askSallyApi, hasSallyApi } from "./sallyApi";
@@ -10,6 +19,27 @@ const INITIAL_PROMPT =
 
 const CHAT_MODE_STORAGE_KEY = "choose-my-rate-sally-chat-mode";
 const INITIAL_CONVERSATION_HISTORY = [{ role: "assistant", content: INITIAL_PROMPT }];
+const SCENARIO_RESTORE_FIELDS = [
+  "loanPurpose",
+  "loanType",
+  "loanAmount",
+  "purchasePrice",
+  "downPayment",
+  "downPaymentPercent",
+  "creditScore",
+  "occupancy",
+  "propertyType",
+  "zipCode",
+  "propertyValue",
+  "currentLoanBalance",
+  "currentInterestRate",
+  "currentRemainingTermYears",
+  "newLoanAmount",
+  "newInterestRate",
+  "newLoanTermYears",
+  "estimatedClosingCosts",
+  "requestedCashOut",
+];
 
 function formatCurrency(value) {
   if (value === "" || value === null || value === undefined) return "—";
@@ -33,6 +63,17 @@ function formatPercent(value, digits = 3) {
 function toNumber(value) {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : 0;
+}
+
+function sanitizeScenarioForRestore(scenario) {
+  const source = scenario && typeof scenario === "object" ? scenario : {};
+  return SCENARIO_RESTORE_FIELDS.reduce((draft, field) => {
+    const value = source[field];
+    if (value !== undefined && value !== null && value !== "") {
+      draft[field] = value;
+    }
+    return draft;
+  }, {});
 }
 
 function calculateDownPaymentPercent(scenario) {
@@ -401,6 +442,40 @@ function buildRateGuidance(currentOption, previousOption, rotationCounts, totalM
   };
 }
 
+function selectDefaultComparisonOption(quote) {
+  const options = Array.isArray(quote?.options) ? quote.options : [];
+  return options[0] || null;
+}
+
+function buildComparisonPricing(option, scenario) {
+  const fallbackRate = Number(option?.rate);
+  const fallbackPricing = calculatePricing(
+    scenario,
+    Number.isFinite(fallbackRate) ? fallbackRate : getBaseRate(scenario),
+  );
+
+  return adaptPricingOptionToPanel(option, scenario, fallbackPricing);
+}
+
+async function quoteComparisonSide(scenario) {
+  const pricingScenario = buildPricingScenario(scenario);
+  const quote = await quotePricing(pricingScenario);
+
+  return {
+    quote,
+    selectedOption: selectDefaultComparisonOption(quote),
+  };
+}
+
+function createInitialScenario() {
+  return {
+    ...createEmptyScenario(),
+    loanType: "Conventional",
+    loanPurpose: "purchase",
+    occupancy: "primary",
+  };
+}
+
 function ScenarioControl({ field, value, onChange }) {
   return (
     <div className="scenario-control">
@@ -428,21 +503,20 @@ function ScenarioControl({ field, value, onChange }) {
 }
 
 export default function App() {
-const [scenario, setScenario] = useState(() => ({
-  ...createEmptyScenario(),
-  loanType: "Conventional",
-  loanPurpose: "purchase",
-  occupancy: "primary",
-}));
+  const [scenario, setScenario] = useState(createInitialScenario);
 
+  const [selectedBorrowerGoal, setSelectedBorrowerGoal] = useState("buy");
+  const [borrowerFlowStep, setBorrowerFlowStep] = useState("goal");
+  const [savedScenarioDraft, setSavedScenarioDraft] = useState(() => readGuestScenarioDraft());
   const [prompt, setPrompt] = useState(INITIAL_PROMPT);
   const [lastAnswer, setLastAnswer] = useState("");
   const [input, setInput] = useState("");
   const [conversationHistory, setConversationHistory] = useState(INITIAL_CONVERSATION_HISTORY);
   const [isListening, setIsListening] = useState(false);
   const [isThinking, setIsThinking] = useState(false);
-  const [isUserTyping, setIsUserTyping] = useState(false);
-  const [speechSupported, setSpeechSupported] = useState(false);
+  const [speechSupported] = useState(
+    () => Boolean(window.SpeechRecognition || window.webkitSpeechRecognition),
+  );
   const [pricingQuote, setPricingQuote] = useState(null);
   const [pricingError, setPricingError] = useState("");
   const [isPricingLoading, setIsPricingLoading] = useState(false);
@@ -465,6 +539,7 @@ const [scenario, setScenario] = useState(() => ({
     toggleAutoPlay,
   } = useSallyVoice();
   const voiceEnabled = !muted;
+  const isUserTyping = Boolean(String(input || "").trim());
   const setVoiceEnabled = (valueOrUpdater) => {
     const nextValue = typeof valueOrUpdater === "function" ? valueOrUpdater(voiceEnabled) : valueOrUpdater;
     setMuted(!nextValue);
@@ -484,6 +559,13 @@ const [scenario, setScenario] = useState(() => ({
     higher_credit: 0,
     steady: 0,
   });
+  const comparisonPanelRef = useRef(null);
+  const {
+    activeComparison,
+    clearComparison,
+    isComparisonOpen,
+    startComparison,
+  } = useScenarioComparison();
 
   const enrichedScenario = useMemo(() => {
     const downPaymentPercent = calculateDownPaymentPercent(scenario);
@@ -509,20 +591,12 @@ const [scenario, setScenario] = useState(() => ({
   }, [chatMode]);
 
   useEffect(() => {
-    const normalizedInput = String(input || "").trim();
-
-    if (!normalizedInput) {
-      setIsUserTyping(false);
-      return;
-    }
-
-    setIsUserTyping(true);
-    const typingTimer = window.setTimeout(() => {
-      setIsUserTyping(false);
-    }, 700);
-
-    return () => window.clearTimeout(typingTimer);
-  }, [input]);
+    saveGuestScenarioDraft({
+      scenario: sanitizeScenarioForRestore(enrichedScenario),
+      selectedBorrowerGoal,
+      borrowerFlowStep,
+    });
+  }, [borrowerFlowStep, enrichedScenario, selectedBorrowerGoal]);
 
   const escrowEstimate = useMemo(
     () => calculatePricing(enrichedScenario, baseRate),
@@ -538,10 +612,7 @@ const [scenario, setScenario] = useState(() => ({
   );
   const selectedLiveOption =
     livePricingOptions.find((option) => option.optionId === selectedOptionId) || livePricingOptions[0] || null;
-  const enginePricing = useMemo(
-    () => adaptPricingOptionToPanel(selectedLiveOption, enrichedScenario, escrowEstimate),
-    [selectedLiveOption, enrichedScenario, escrowEstimate]
-  );
+  const enginePricing = adaptPricingOptionToPanel(selectedLiveOption, enrichedScenario, escrowEstimate);
   const pricing = enginePricing || EMPTY_PRICING;
   const pricingStatusText = enginePricing
     ? `Live pricing${pricingQuote?.pricingAsOf ? ` as of ${new Date(pricingQuote.pricingAsOf).toLocaleTimeString()}` : ""}`
@@ -554,29 +625,35 @@ const [scenario, setScenario] = useState(() => ({
   const scenarioFields = useMemo(() => getScenarioFields(enrichedScenario), [enrichedScenario]);
 
   useEffect(() => {
-    if (!hasPricingApi()) {
-      setPricingQuote(null);
-      setPricingError("Pricing API is not configured.");
-      setRateGuidanceMessage("");
-      previousPricingSelectionRef.current = null;
-      return;
-    }
-
-    if (!hasPricingScenario) {
-      setPricingQuote(null);
-      setPricingError("Add loan amount and credit score to get live pricing.");
-      setIsPricingLoading(false);
-      setRateGuidanceMessage("");
-      previousPricingSelectionRef.current = null;
-      return;
-    }
-
     const controller = new AbortController();
-    setIsPricingLoading(true);
-    setPricingError("");
+    let isActive = true;
 
-    quotePricing(pricingScenarioPayload, { signal: controller.signal })
-      .then((quote) => {
+    const loadPricing = async () => {
+      if (!hasPricingApi()) {
+        setPricingQuote(null);
+        setPricingError("Pricing API is not configured.");
+        setRateGuidanceMessage("");
+        previousPricingSelectionRef.current = null;
+        return;
+      }
+
+      if (!hasPricingScenario) {
+        setPricingQuote(null);
+        setPricingError("Add loan amount and credit score to get live pricing.");
+        setIsPricingLoading(false);
+        setRateGuidanceMessage("");
+        previousPricingSelectionRef.current = null;
+        return;
+      }
+
+      setIsPricingLoading(true);
+      setPricingError("");
+
+      try {
+        const quote = await quotePricing(pricingScenarioPayload, { signal: controller.signal });
+
+        if (!isActive || controller.signal.aborted) return;
+
         suppressNextPricingGuidanceRef.current = true;
         setPricingQuote(quote);
         setRateGuidanceMessage(
@@ -587,25 +664,28 @@ const [scenario, setScenario] = useState(() => ({
           if (options.some((option) => option.optionId === current)) return current;
           return options[0]?.optionId || "";
         });
-      })
-      .catch((error) => {
+      } catch (error) {
         if (error.name === "AbortError") return;
         console.warn("Pricing API fallback:", error);
         setPricingQuote(null);
         setPricingError("Live pricing is unavailable.");
         setRateGuidanceMessage("");
         previousPricingSelectionRef.current = null;
-      })
-      .finally(() => {
+      } finally {
         if (!controller.signal.aborted) setIsPricingLoading(false);
-      });
+      }
+    };
 
-    return () => controller.abort();
+    loadPricing();
+
+    return () => {
+      isActive = false;
+      controller.abort();
+    };
   }, [enrichedScenario, hasPricingScenario, pricingRefreshNonce, pricingScenarioPayload]);
 
   useEffect(() => {
     const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    setSpeechSupported(Boolean(Recognition));
 
     if (!Recognition) return;
 
@@ -759,7 +839,6 @@ const [scenario, setScenario] = useState(() => ({
 
     setLastAnswer(userText);
     setInput("");
-    setIsUserTyping(false);
     setIsThinking(true);
     setConversationHistory(currentHistorySnapshot);
 
@@ -825,11 +904,32 @@ const [scenario, setScenario] = useState(() => ({
   };
 
   const updateScenarioField = (field, rawValue) => {
-    const numericFields = ["purchasePrice", "appraisalValue", "downPayment", "loanAmount", "creditScore"];
+    const numericFields = [
+      "purchasePrice",
+      "appraisalValue",
+      "downPayment",
+      "loanAmount",
+      "creditScore",
+      "propertyValue",
+      "currentLoanBalance",
+      "currentInterestRate",
+      "currentRemainingTermYears",
+      "newLoanAmount",
+      "newInterestRate",
+      "newLoanTermYears",
+      "estimatedClosingCosts",
+      "requestedCashOut",
+    ];
     let value = rawValue;
 
     if (numericFields.includes(field)) {
       value = rawValue.replace(/[^\d.]/g, "");
+    }
+
+    if (field === "loanPurpose") {
+      if (value === "purchase") setSelectedBorrowerGoal("buy");
+      if (value === "refinance") setSelectedBorrowerGoal("refinance");
+      if (value === "cash_out") setSelectedBorrowerGoal("cash-out");
     }
 
     setScenario((prev) => {
@@ -839,9 +939,26 @@ const [scenario, setScenario] = useState(() => ({
       };
 
       if (field === "loanPurpose" && value !== "purchase") {
-  next.downPayment = "";
-  next.downPaymentPercent = "";
-}
+        next.downPayment = "";
+        next.downPaymentPercent = "";
+      }
+
+      if (field === "purchasePrice" && next.loanPurpose !== "purchase") {
+        next.propertyValue = value;
+      }
+
+      if (field === "propertyValue") {
+        next.purchasePrice = value;
+      }
+
+      if (field === "currentLoanBalance" && next.loanPurpose !== "purchase") {
+        next.loanAmount = value;
+        next.newLoanAmount = value;
+      }
+
+      if (field === "newLoanAmount") {
+        next.loanAmount = value;
+      }
 
       if (field === "purchasePrice" || field === "downPayment") {
         const purchasePrice = toNumber(field === "purchasePrice" ? value : next.purchasePrice);
@@ -856,8 +973,186 @@ const [scenario, setScenario] = useState(() => ({
     });
   };
 
+  const submitCurrentScenario = () => {
+    setBorrowerFlowStep("rate-options");
+    setPricingRefreshNonce((value) => value + 1);
+    setPrompt("I am checking the scenario details against the live pricing boundary now.");
+  };
+
+  const selectBorrowerGoal = (goal) => {
+    setSelectedBorrowerGoal(goal);
+
+    if (goal !== "fha-conventional") {
+      clearComparison();
+    }
+
+    if (goal === "buy") {
+      setScenario((prev) => ({
+        ...prev,
+        loanPurpose: "purchase",
+        loanType: prev.loanType || "Conventional",
+        occupancy: prev.occupancy || "primary",
+      }));
+      setPrompt("Let's start with the purchase basics, then compare rate and payment options.");
+      return;
+    }
+
+    if (goal === "refinance" || goal === "cash-out") {
+      setScenario((prev) => ({
+        ...prev,
+        loanPurpose: goal === "cash-out" ? "cash_out" : "refinance",
+        occupancy: prev.occupancy || "primary",
+        purchasePrice: prev.propertyValue || prev.purchasePrice,
+        propertyValue: prev.propertyValue || prev.purchasePrice,
+        loanAmount: prev.newLoanAmount || prev.currentLoanBalance || prev.loanAmount,
+      }));
+      setPrompt(
+        goal === "cash-out"
+          ? "Let's estimate a cash-out refinance using your property value, current balance, and requested cash out."
+          : "Let's compare your refinance scenario using the current property value and loan details.",
+      );
+      return;
+    }
+
+    if (goal === "fha-conventional") {
+      setScenario((prev) => ({
+        ...prev,
+        loanPurpose: "purchase",
+        loanType: prev.loanType || "Conventional",
+        occupancy: prev.occupancy || "primary",
+      }));
+      setPrompt("I can compare FHA and Conventional using your purchase scenario.");
+    }
+  };
+
+  const startFhaConventionalComparison = async () => {
+    const baseScenario = {
+      ...enrichedScenario,
+      loanPurpose: "purchase",
+      occupancy: enrichedScenario.occupancy || "primary",
+    };
+    const fhaScenario = buildScenarioVariant(baseScenario, {
+      loanType: "FHA",
+      downPaymentPercent: baseScenario.downPaymentPercent || "3.5",
+    });
+    const conventionalScenario = buildScenarioVariant(baseScenario, {
+      loanType: "Conventional",
+      downPaymentPercent: baseScenario.downPaymentPercent || "5",
+    });
+
+    startComparison({
+      type: "loan_program",
+      title: "FHA vs Conventional",
+      baseScenario,
+      status: "loading",
+      left: { id: "fha", label: "FHA", scenario: fhaScenario },
+      right: { id: "conventional", label: "Conventional", scenario: conventionalScenario },
+      summary: {
+        text: "Requesting FHA and Conventional pricing through the live pricing boundary.",
+      },
+    });
+
+    if (!hasPricingApi()) {
+      startComparison({
+        type: "loan_program",
+        title: "FHA vs Conventional",
+        baseScenario,
+        status: "pricing unavailable",
+        left: { id: "fha", label: "FHA", scenario: fhaScenario },
+        right: { id: "conventional", label: "Conventional", scenario: conventionalScenario },
+        summary: {
+          text: "Live pricing is not configured, so this comparison is waiting for the production pricing connection.",
+        },
+      });
+      return;
+    }
+
+    try {
+      const [fhaResult, conventionalResult] = await Promise.all([
+        quoteComparisonSide(fhaScenario),
+        quoteComparisonSide(conventionalScenario),
+      ]);
+
+      startComparison({
+        type: "loan_program",
+        title: "FHA vs Conventional",
+        baseScenario,
+        status: "ready",
+        left: {
+          id: "fha",
+          label: "FHA",
+          scenario: fhaScenario,
+          pricingQuote: fhaResult.quote,
+          selectedOption: fhaResult.selectedOption,
+          selectedOptionId: fhaResult.selectedOption?.optionId || "",
+          pricing: buildComparisonPricing(fhaResult.selectedOption, fhaScenario),
+        },
+        right: {
+          id: "conventional",
+          label: "Conventional",
+          scenario: conventionalScenario,
+          pricingQuote: conventionalResult.quote,
+          selectedOption: conventionalResult.selectedOption,
+          selectedOptionId: conventionalResult.selectedOption?.optionId || "",
+          pricing: buildComparisonPricing(conventionalResult.selectedOption, conventionalScenario),
+        },
+      });
+    } catch (error) {
+      console.warn("Comparison pricing unavailable:", error);
+      startComparison({
+        type: "loan_program",
+        title: "FHA vs Conventional",
+        baseScenario,
+        status: "pricing unavailable",
+        left: { id: "fha", label: "FHA", scenario: fhaScenario },
+        right: { id: "conventional", label: "Conventional", scenario: conventionalScenario },
+        summary: {
+          text: "Live comparison pricing is unavailable. Check the production pricing connection, then try again.",
+        },
+      });
+    }
+  };
+
+  const saveCurrentScenario = () => {
+    const saved = saveGuestScenarioDraft({
+      scenario: sanitizeScenarioForRestore(enrichedScenario),
+      selectedBorrowerGoal,
+      borrowerFlowStep,
+    });
+    if (saved) {
+      setSavedScenarioDraft(readGuestScenarioDraft());
+      setPrompt("I saved this non-identifying scenario on this browser so you can restore it later.");
+    }
+  };
+
+  const continueSavedScenario = () => {
+    if (!savedScenarioDraft) return;
+
+    setScenario({
+      ...createInitialScenario(),
+      ...savedScenarioDraft.scenario,
+    });
+    setSelectedBorrowerGoal(savedScenarioDraft.selectedBorrowerGoal || "buy");
+    setBorrowerFlowStep(savedScenarioDraft.borrowerFlowStep || "goal");
+    setSavedScenarioDraft(null);
+    setPrompt("Welcome back. I restored your saved comparison scenario.");
+  };
+
+  const startOverSavedScenario = () => {
+    clearGuestScenarioDraft();
+    clearComparison();
+    setSavedScenarioDraft(null);
+    setScenario(createInitialScenario());
+    setSelectedBorrowerGoal("buy");
+    setBorrowerFlowStep("goal");
+    setPrompt(INITIAL_PROMPT);
+    setLastAnswer("");
+    setInput("");
+    setConversationHistory(INITIAL_CONVERSATION_HISTORY);
+  };
+
   return (
-    <div className="cmr-page">
+    <div className="cmr-page" data-testid="app-shell">
       <div className="galaxy-bg" />
       <div className="stars stars-a" />
       <div className="stars stars-b" />
@@ -875,6 +1170,35 @@ const [scenario, setScenario] = useState(() => ({
           </div>
         </header>
 
+        <SavedScenarioRestore
+          draft={savedScenarioDraft}
+          onContinue={continueSavedScenario}
+          onStartOver={startOverSavedScenario}
+        />
+
+        <section className="borrower-journey-layout" aria-label="Borrower journey">
+          <div className="borrower-main-flow" data-testid="borrower-main-flow">
+            <BorrowerGuidedFlow
+              currentStep={borrowerFlowStep}
+              hasRateOptions={livePricingOptions.length > 0}
+              selectedGoal={selectedBorrowerGoal}
+              scenario={enrichedScenario}
+              onSelectGoal={selectBorrowerGoal}
+              onStepChange={setBorrowerFlowStep}
+            />
+            <div className="borrower-submit-row">
+              <button
+                type="button"
+                className="primary-cta borrower-submit-btn"
+                data-testid="borrower-submit-scenario"
+                onClick={submitCurrentScenario}
+              >
+                Check My Rate Options
+              </button>
+            </div>
+          </div>
+
+          <SallySideAssistant>
         <section className="sally-section">
           <div className="sally-header">
             <div className="sally-left-zone">
@@ -975,9 +1299,11 @@ const [scenario, setScenario] = useState(() => ({
             </button>
           </div>
         </section>
+          </SallySideAssistant>
+        </section>
 
         <section className="bottom-grid">
-          <div className="scenario-panel">
+          <div className="scenario-panel" data-testid="scenario-panel">
             <div className="panel-header">
               <div>
                 <h2 className="panel-title scenario-title-red">Your Scenario</h2>
@@ -995,9 +1321,31 @@ const [scenario, setScenario] = useState(() => ({
                 />
               ))}
             </div>
+            <div className="scenario-action-row">
+              <button type="button" className="top-action-btn" data-testid="save-scenario" onClick={saveCurrentScenario}>
+                Save Scenario
+              </button>
+              <button
+                type="button"
+                className="top-action-btn"
+                data-testid="fha-conventional-compare"
+                onClick={startFhaConventionalComparison}
+              >
+                Compare FHA vs Conventional
+              </button>
+            </div>
           </div>
 
-          <div className="pricing-panel">
+          <div className="pricing-column" ref={comparisonPanelRef}>
+            {isComparisonOpen ? (
+              <ComparisonPanel
+                comparison={activeComparison}
+                isOpen={isComparisonOpen}
+                onClose={clearComparison}
+              />
+            ) : null}
+
+          <div className="pricing-panel" data-testid="pricing-panel">
             <div className="panel-header pricing-header">
               <div>
                 <h2 className="panel-title pricing-title-white">Pricing Engine</h2>
@@ -1016,6 +1364,12 @@ const [scenario, setScenario] = useState(() => ({
             <div className="pricing-status-note">{pricingStatusText}</div>
             {pricingQuote?.banner ? <div className="pricing-banner">{pricingQuote.banner}</div> : null}
             {pricingPausedMessage ? <div className="pricing-paused">{pricingPausedMessage}</div> : null}
+            <RefinanceComparisonPanel scenario={enrichedScenario} pricing={pricing} />
+            <BorrowerRateCards
+              options={livePricingOptions}
+              selectedOption={selectedLiveOption}
+              onSelectOption={selectLiveOption}
+            />
 
             <div className="payment-hero">
               <div className="payment-main">
@@ -1188,6 +1542,7 @@ const [scenario, setScenario] = useState(() => ({
                 </div>
               </div>
             ) : null}
+          </div>
           </div>
         </section>
       </div>

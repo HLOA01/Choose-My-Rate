@@ -147,6 +147,99 @@ async function openApp(page, options = {}) {
       Object.defineProperty(window, "webkitSpeechRecognition", { configurable: true, value: undefined });
     });
   }
+  if (options.mockSpeech) {
+    await page.addInitScript(() => {
+      window.__qaRecognitionInstances = [];
+      window.__qaStoppedTracks = 0;
+      window.__qaSpoken = [];
+      window.__qaSpeechCancelCount = 0;
+
+      class QaRecognition {
+        constructor() {
+          this.interimResults = false;
+          this.lang = "en-US";
+          this.onresult = null;
+          this.onerror = null;
+          this.onend = null;
+          window.__qaRecognitionInstances.push(this);
+        }
+
+        start() {
+          window.__qaActiveRecognition = this;
+        }
+
+        stop() {
+          window.__qaRecognitionStopped = true;
+        }
+
+        emitTranscript(transcript) {
+          this.onresult?.({
+            results: [{ 0: { transcript }, length: 1 }],
+          });
+        }
+      }
+
+      Object.defineProperty(window, "SpeechRecognition", { configurable: true, value: QaRecognition });
+      Object.defineProperty(window, "webkitSpeechRecognition", { configurable: true, value: QaRecognition });
+      Object.defineProperty(window.navigator, "mediaDevices", {
+        configurable: true,
+        value: {
+          getUserMedia: async () => ({
+            getTracks: () => [
+              {
+                stop() {
+                  window.__qaStoppedTracks += 1;
+                },
+              },
+            ],
+          }),
+        },
+      });
+      window.AudioContext = class {
+        constructor() {
+          this.destination = {};
+        }
+
+        createMediaStreamSource() {
+          return { connect() {} };
+        }
+
+        createAnalyser() {
+          return {
+            frequencyBinCount: 32,
+            fftSize: 64,
+            getByteTimeDomainData(values) {
+              values.fill(140);
+            },
+          };
+        }
+
+        close() {
+          window.__qaAudioContextClosed = true;
+        }
+      };
+      window.webkitAudioContext = window.AudioContext;
+      window.SpeechSynthesisUtterance = class {
+        constructor(text) {
+          this.text = text;
+          this.onend = null;
+          this.onerror = null;
+        }
+      };
+      Object.defineProperty(window, "speechSynthesis", {
+        configurable: true,
+        value: {
+        speak(utterance) {
+          window.__qaSpoken.push(utterance.text);
+          window.__qaCurrentUtterance = utterance;
+        },
+        cancel() {
+          window.__qaSpeechCancelCount += 1;
+        },
+        },
+      });
+    });
+  }
   if (options.trackAudio) {
     await page.addInitScript(() => {
       window.__qaAudioTicks = 0;
@@ -381,6 +474,126 @@ test("application CTA and optional comparison stay below selected rate informati
   expect(capturedPayloads.map((payload) => payload.loanTypePreference)).toEqual(["conventional", "fha", "conventional"]);
 });
 
+test("microphone dictation shows waveform and finish/cancel never submits audio", async ({ page }) => {
+  const { capturedPayloads } = await openApp(page, { mockSpeech: true });
+
+  await page.getByRole("button", { name: "Dictate a question" }).click();
+  await expect(page.getByTestId("dictation-state")).toContainText("Listening");
+  await expect(page.getByTestId("dictation-waveform").locator("span")).toHaveCount(5);
+  await page.evaluate(() => window.__qaActiveRecognition.emitTranscript("What happens if I choose points?"));
+  await page.getByRole("button", { name: "Finish" }).click();
+
+  await expect(page.getByLabel("Ask Sally")).toHaveValue("What happens if I choose points?");
+  await expect(page.getByTestId("sally-thread")).toHaveCount(0);
+  expect(await page.evaluate(() => window.__qaStoppedTracks)).toBe(1);
+  expect(await page.evaluate(() => window.__qaAudioContextClosed)).toBe(true);
+  expect(capturedPayloads).toEqual([]);
+  expect(await page.evaluate(() => Object.keys(window.localStorage).concat(Object.keys(window.sessionStorage)).filter((key) => /audio|microphone|dictation/i.test(key)))).toEqual([]);
+
+  await page.getByRole("button", { name: "Dictate a question" }).click();
+  await page.evaluate(() => window.__qaActiveRecognition.emitTranscript("Discard this"));
+  await page.getByRole("button", { name: "Cancel" }).click();
+  await expect(page.getByLabel("Ask Sally")).toHaveValue("What happens if I choose points?");
+});
+
+test("unsupported speech recognition keeps typed Sally entry available", async ({ page }) => {
+  await openApp(page, { disableSpeech: true });
+
+  await expect(page.getByRole("button", { name: "Dictate a question" })).toBeDisabled();
+  await expect(page.getByTestId("dictation-message")).toContainText("Speech recognition is not available");
+  await page.getByLabel("Ask Sally").fill("Can I still type?");
+  await page.getByRole("button", { name: "Send to Sally" }).click();
+  await expect(page.getByTestId("sally-thread")).toContainText("Can I still type?");
+  await expect(page.getByTestId("sally-thread")).toContainText("I can help compare");
+});
+
+test("Sally playback is written first, user-initiated, and one response at a time", async ({ page }) => {
+  await openApp(page, { mockSpeech: true });
+
+  await page.getByLabel("Ask Sally").fill("What should I compare?");
+  await page.getByRole("button", { name: "Send to Sally" }).click();
+  await expect(page.getByTestId("sally-thread")).toContainText("I can help compare");
+  expect(await page.evaluate(() => window.__qaSpoken)).toEqual([]);
+
+  await page.getByRole("button", { name: "Listen to Sally's response" }).click();
+  expect(await page.evaluate(() => window.__qaSpoken.length)).toBe(1);
+  await expect(page.getByRole("button", { name: "Stop listening to Sally's response" })).toBeVisible();
+
+  await page.getByLabel("Ask Sally").fill("Explain lender credits");
+  await page.getByRole("button", { name: "Send to Sally" }).click();
+  const listenButtons = page.getByRole("button", { name: "Listen to Sally's response" });
+  await expect(listenButtons).toHaveCount(2);
+  await listenButtons.nth(1).click();
+  expect(await page.evaluate(() => window.__qaSpoken.length)).toBe(2);
+  expect(await page.evaluate(() => window.__qaSpeechCancelCount)).toBeGreaterThanOrEqual(2);
+});
+
+test("Sally conversation viewport scrolls internally without growing the page", async ({ page }) => {
+  await openApp(page, { mockSpeech: true });
+
+  for (let index = 0; index < 3; index += 1) {
+    await page.getByLabel("Ask Sally").fill(`Question ${index}`);
+    await page.getByRole("button", { name: "Send to Sally" }).click();
+  }
+  await page.evaluate(() => {
+    window.__qaInitialPageHeight = document.documentElement.scrollHeight;
+  });
+
+  for (let index = 3; index < 10; index += 1) {
+    await page.getByLabel("Ask Sally").fill(`Question ${index}`);
+    await page.getByRole("button", { name: "Send to Sally" }).click();
+  }
+
+  const metrics = await page.evaluate(() => {
+    const thread = document.querySelector("[data-testid='sally-thread']");
+    return {
+      clientHeight: thread.clientHeight,
+      scrollHeight: thread.scrollHeight,
+      pageGrowth: document.documentElement.scrollHeight - window.__qaInitialPageHeight,
+    };
+  });
+  expect(metrics.clientHeight).toBeLessThanOrEqual(220);
+  expect(metrics.scrollHeight).toBeGreaterThan(metrics.clientHeight);
+  expect(metrics.pageGrowth).toBeLessThan(40);
+
+  await page.evaluate(() => {
+    const thread = document.querySelector("[data-testid='sally-thread']");
+    thread.scrollTop = 0;
+  });
+  const before = await page.evaluate(() => document.querySelector("[data-testid='sally-thread']").scrollTop);
+  await page.getByLabel("Ask Sally").fill("Do not force scroll");
+  await page.getByRole("button", { name: "Send to Sally" }).click();
+  const after = await page.evaluate(() => document.querySelector("[data-testid='sally-thread']").scrollTop);
+  expect(after).toBe(before);
+});
+
+test("Sally purchase and refinance intents advance the funnel without requesting pricing", async ({ page }) => {
+  const { capturedPayloads } = await openApp(page, { mockSpeech: true });
+
+  await page.getByLabel("Ask Sally").fill("I want to purchase a house");
+  await page.getByRole("button", { name: "Send to Sally" }).click();
+  await expect(page.getByTestId("purchase-property-step")).toBeVisible();
+  await expect(page.getByTestId("sally-thread")).toContainText("What ZIP code is the home in?");
+  await expect(page.getByTestId("zip-code")).toBeFocused();
+  expect(capturedPayloads).toEqual([]);
+
+  await page.getByLabel("Ask Sally").fill("Help me refinance");
+  await page.getByRole("button", { name: "Send to Sally" }).click();
+  await expect(page.getByTestId("refinance-property-step")).toBeVisible();
+  await expect(page.getByTestId("sally-thread")).toContainText("What ZIP code is the property in?");
+  expect(capturedPayloads).toEqual([]);
+});
+
+test("ambiguous Sally chat does not mutate the borrower path", async ({ page }) => {
+  await openApp(page);
+
+  await page.getByLabel("Ask Sally").fill("Maybe later");
+  await page.getByRole("button", { name: "Send to Sally" }).click();
+  await expect(page.getByTestId("purpose-step")).toBeVisible();
+  await expect(page.getByTestId("purchase-property-step")).toHaveCount(0);
+  await expect(page.getByTestId("refinance-property-step")).toHaveCount(0);
+});
+
 test("cash-out refinance captures requested cash out and maps payload", async ({ page }) => {
   const { capturedPayloads } = await openApp(page);
 
@@ -423,7 +636,7 @@ test("Sally remains compact and text-first with scenario context", async ({ page
   await page.getByLabel("Ask Sally").fill("What should I compare?");
   await page.getByRole("button", { name: "Send to Sally" }).click();
 
-  await expect(page.getByTestId("sally-response")).toContainText("principal-and-interest payment");
+  await expect(page.getByTestId("sally-thread")).toContainText("principal-and-interest payment");
   await expect(page.getByTestId("purchase-property-step")).toBeVisible();
   await expect(page.getByTestId("home-price")).toHaveValue("450000");
   await expect(page.getByTestId("sally-card")).not.toContainText(/spoken|autoplay|realtime|voice controls/i);
@@ -443,7 +656,7 @@ test("estimate-unavailable state stays controlled without invented closing costs
   await openApp(page, { mode: "unavailable-estimate" });
   await submitPurchase(page);
 
-  await expect(page.getByTestId("estimated-closing-costs")).toHaveText("Estimated closing costs unavailable");
+  await expect(page.getByTestId("estimated-closing-costs")).toHaveText("Unavailable");
   await expect(page.getByTestId("rate-tradeoff").locator("> div")).toHaveCount(3);
   await expect(page.getByTestId("app-shell")).not.toContainText("Estimated closing charges");
   await expect(page.getByTestId("closing-cost-status")).toContainText("unavailable until an approved HLOA fee schedule is connected");

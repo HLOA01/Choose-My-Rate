@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
 import { askSallyApi, hasSallyApi } from "./sallyApi";
 import { hasPricingApi, quotePricing } from "./pricingApi";
@@ -190,7 +190,7 @@ function getPublicClosingCostStatusText(option) {
 
 function getClosingCostCardValue(option) {
   const estimate = getClosingCostEstimate(option);
-  if (!estimate || estimate.status === "estimate_unavailable") return "Estimated closing costs unavailable";
+  if (!estimate || estimate.status === "estimate_unavailable") return "Unavailable";
   return formatEstimatedClosingCharges(option);
 }
 
@@ -318,6 +318,38 @@ function SpeakerIcon({ muted }) {
   );
 }
 
+function StopIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M7 7h10v10H7z" />
+    </svg>
+  );
+}
+
+function nextMissingPrompt(nextScenario) {
+  if (nextScenario.borrowerPath === "purchase") {
+    if (!nextScenario.zipCode) return { testId: "zip-code", text: "What ZIP code is the home in?" };
+    if (!toNumber(nextScenario.homePrice)) return { testId: "home-price", text: "What purchase price should we use?" };
+    if (!toNumber(nextScenario.downPayment)) return { testId: "down-payment", text: "How much do you plan to put down?" };
+  } else {
+    if (!nextScenario.zipCode) return { testId: "zip-code", text: "What ZIP code is the property in?" };
+    if (!toNumber(nextScenario.propertyValue)) return { testId: "property-value", text: "What is the estimated property value?" };
+    if (!toNumber(nextScenario.currentMortgageBalance)) {
+      return { testId: "current-balance", text: "What is the current mortgage balance?" };
+    }
+    if (!toNumber(nextScenario.currentInterestRate)) return { testId: "current-rate", text: "What is your current interest rate?" };
+  }
+  if (!toNumber(nextScenario.annualIncome)) return { testId: "annual-income", text: "What is your estimated gross annual household income?" };
+  return { testId: "submit-scenario", text: "You can review your details and request live rates when you are ready." };
+}
+
+function detectMortgageIntent(text) {
+  const normalized = text.toLowerCase();
+  if (/\b(refinance|refi|lower my mortgage payment|lower payment)\b/.test(normalized)) return "refinance";
+  if (/\b(buy|purchase|purchasing)\b/.test(normalized) && /\b(home|house|property)\b/.test(normalized)) return "purchase";
+  return null;
+}
+
 export default function SimplifiedBorrowerFunnel() {
   const [scenario, setScenario] = useState(INITIAL_SCENARIO);
   const [step, setStep] = useState(0);
@@ -327,13 +359,25 @@ export default function SimplifiedBorrowerFunnel() {
   const [pricingMessage, setPricingMessage] = useState("");
   const [comparison, setComparison] = useState(null);
   const [sallyInput, setSallyInput] = useState("");
-  const [sallyResponse, setSallyResponse] = useState("");
-  const [sallyExpanded, setSallyExpanded] = useState(false);
+  const [sallyMessages, setSallyMessages] = useState([]);
   const [sallyThinking, setSallyThinking] = useState(false);
+  const [dictationState, setDictationState] = useState("idle");
+  const [dictationTranscript, setDictationTranscript] = useState("");
+  const [dictationMessage, setDictationMessage] = useState("");
+  const [waveformLevels, setWaveformLevels] = useState([0.28, 0.54, 0.36, 0.7, 0.44]);
+  const [playingMessageId, setPlayingMessageId] = useState("");
+  const [newMessageNotice, setNewMessageNotice] = useState(false);
   const [soundOn, setSoundOn] = useState(true);
   const [handoffMessage, setHandoffMessage] = useState("");
+  const [pendingFocus, setPendingFocus] = useState("");
   const touchStartRef = useRef(null);
   const abortRef = useRef(null);
+  const recognitionRef = useRef(null);
+  const mediaStreamRef = useRef(null);
+  const audioContextRef = useRef(null);
+  const animationFrameRef = useRef(null);
+  const messagesRef = useRef(null);
+  const shouldAutoScrollRef = useRef(true);
 
   const pricingPayload = useMemo(() => buildPricingPayload(scenario), [scenario]);
   const options = Array.isArray(quote?.options) ? quote.options : [];
@@ -347,6 +391,68 @@ export default function SimplifiedBorrowerFunnel() {
   const closingCostEquation = getClosingCostEquation(selectedOption);
   const canDictate =
     typeof window !== "undefined" && Boolean(window.SpeechRecognition || window.webkitSpeechRecognition);
+  const canSpeak = typeof window !== "undefined" && Boolean(window.speechSynthesis && window.SpeechSynthesisUtterance);
+
+  const stopDictationResources = () => {
+    if (animationFrameRef.current) {
+      window.cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
+    }
+    if (recognitionRef.current) {
+      recognitionRef.current.onresult = null;
+      recognitionRef.current.onerror = null;
+      recognitionRef.current.onend = null;
+      recognitionRef.current.stop?.();
+      recognitionRef.current = null;
+    }
+    mediaStreamRef.current?.getTracks?.().forEach((track) => track.stop());
+    mediaStreamRef.current = null;
+    audioContextRef.current?.close?.();
+    audioContextRef.current = null;
+  };
+
+  const stopPlayback = () => {
+    window.speechSynthesis?.cancel?.();
+    setPlayingMessageId("");
+  };
+
+  useEffect(() => () => {
+    stopDictationResources();
+    window.speechSynthesis?.cancel?.();
+  }, []);
+
+  useEffect(() => {
+    if (!pendingFocus) return;
+    window.setTimeout(() => {
+      document.querySelector(`[data-testid="${pendingFocus}"]`)?.focus?.();
+      setPendingFocus("");
+    }, 0);
+  }, [pendingFocus]);
+
+  useEffect(() => {
+    const viewport = messagesRef.current;
+    if (!viewport || !sallyMessages.length) return;
+    if (shouldAutoScrollRef.current) {
+      viewport.scrollTop = viewport.scrollHeight;
+      setNewMessageNotice(false);
+    } else {
+      setNewMessageNotice(true);
+    }
+  }, [sallyMessages]);
+
+  const addSallyMessage = (message) => {
+    setSallyMessages((current) => [
+      ...current,
+      { id: `sally-${Date.now()}-${current.length}`, role: "assistant", text: message },
+    ]);
+  };
+
+  const addBorrowerMessage = (message) => {
+    setSallyMessages((current) => [
+      ...current,
+      { id: `borrower-${Date.now()}-${current.length}`, role: "borrower", text: message },
+    ]);
+  };
 
   const updateScenario = (field, value) => {
     setQuote(null);
@@ -515,11 +621,28 @@ export default function SimplifiedBorrowerFunnel() {
     const userText = sallyInput.trim();
     if (!userText || sallyThinking) return;
     setSallyInput("");
-    setSallyExpanded(true);
+    addBorrowerMessage(userText);
+    stopPlayback();
+
+    const intent = detectMortgageIntent(userText);
+    if (intent) {
+      const nextScenario = { ...scenario, borrowerPath: intent };
+      const nextPrompt = nextMissingPrompt(nextScenario);
+      setScenario(nextScenario);
+      setStep(nextPrompt.testId === "annual-income" || nextPrompt.testId === "submit-scenario" ? 2 : 1);
+      setPendingFocus(nextPrompt.testId);
+      addSallyMessage(
+        intent === "purchase"
+          ? `Great--let's look at purchase options. ${nextPrompt.text}`
+          : `Great--let's look at refinance options. ${nextPrompt.text}`,
+      );
+      return;
+    }
+
     setSallyThinking(true);
 
     if (!hasSallyApi()) {
-      setSallyResponse("I can help compare principal-and-interest payment, upfront cost, and lender credit using the scenario on this page.");
+      addSallyMessage("I can help compare principal-and-interest payment, upfront cost, and lender credit using the scenario on this page.");
       setSallyThinking(false);
       return;
     }
@@ -528,29 +651,124 @@ export default function SimplifiedBorrowerFunnel() {
       const response = await askSallyApi({
         userMessage: userText,
         currentScenario: { ...scenario, pricingPayload, selectedRate: selectedOption || null },
-        conversationHistory: [{ role: "user", content: userText }],
+        conversationHistory: sallyMessages.map((message) => ({
+          role: message.role === "assistant" ? "assistant" : "user",
+          content: message.text,
+        })).concat({ role: "user", content: userText }),
         pricingOptions: options,
         localResult: null,
       });
-      setSallyResponse(response.replyText || "I can help explain the option you selected.");
+      addSallyMessage(response.replyText || "I can help explain the option you selected.");
     } catch {
-      setSallyResponse("Sally is temporarily unavailable. Your rate options and application step remain available.");
+      addSallyMessage("Sally is temporarily unavailable. Your rate options and application step remain available.");
     } finally {
       setSallyThinking(false);
     }
   };
 
-  const startDictation = () => {
+  const startWaveform = (stream) => {
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContext || window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches) return;
+    const context = new AudioContext();
+    const analyser = context.createAnalyser();
+    const source = context.createMediaStreamSource(stream);
+    const data = new Uint8Array(analyser.frequencyBinCount);
+    analyser.fftSize = 64;
+    source.connect(analyser);
+    audioContextRef.current = context;
+
+    const draw = () => {
+      analyser.getByteTimeDomainData(data);
+      const average = data.reduce((sum, value) => sum + Math.abs(value - 128), 0) / data.length;
+      const level = Math.min(Math.max(average / 32, 0.2), 1);
+      setWaveformLevels([0.34, 0.58, 0.42, 0.74, 0.5].map((seed, index) => Math.min(1, Math.max(0.18, seed * level + index * 0.035))));
+      animationFrameRef.current = window.requestAnimationFrame(draw);
+    };
+    draw();
+  };
+
+  const startDictation = async () => {
     const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!Recognition) return;
+    if (!Recognition) {
+      setDictationMessage("Speech recognition is not available in this browser. You can still type your question.");
+      return;
+    }
+
+    stopDictationResources();
+    setDictationState("listening");
+    setDictationTranscript("");
+    setDictationMessage("");
+
+    try {
+      if (window.navigator.mediaDevices?.getUserMedia) {
+        const stream = await window.navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaStreamRef.current = stream;
+        startWaveform(stream);
+      }
+    } catch {
+      setWaveformLevels([0.3, 0.65, 0.4, 0.8, 0.48]);
+    }
+
     const recognition = new Recognition();
+    recognitionRef.current = recognition;
     recognition.lang = "en-US";
-    recognition.interimResults = false;
+    recognition.interimResults = true;
     recognition.onresult = (event) => {
-      const transcript = event.results?.[0]?.[0]?.transcript || "";
-      setSallyInput(transcript);
+      const transcript = Array.from(event.results || [])
+        .map((result) => result?.[0]?.transcript || "")
+        .join(" ")
+        .trim();
+      setDictationTranscript(transcript);
+    };
+    recognition.onerror = () => {
+      setDictationMessage("Dictation stopped. You can type your question or try the microphone again.");
+      setDictationState("idle");
+      stopDictationResources();
+    };
+    recognition.onend = () => {
+      if (dictationState === "listening") {
+        setDictationState("reviewing");
+      }
     };
     recognition.start();
+  };
+
+  const cancelDictation = () => {
+    setDictationTranscript("");
+    setDictationState("idle");
+    stopDictationResources();
+  };
+
+  const finishDictation = () => {
+    setSallyInput(dictationTranscript.trim());
+    setDictationState("idle");
+    stopDictationResources();
+  };
+
+  const handleMessagesScroll = () => {
+    const viewport = messagesRef.current;
+    if (!viewport) return;
+    const distanceFromBottom = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight;
+    shouldAutoScrollRef.current = distanceFromBottom < 24;
+    if (shouldAutoScrollRef.current) setNewMessageNotice(false);
+  };
+
+  const playSallyResponse = (message) => {
+    if (!canSpeak) return;
+    if (playingMessageId === message.id) {
+      stopPlayback();
+      return;
+    }
+    window.speechSynthesis.cancel();
+    const utterance = new window.SpeechSynthesisUtterance(message.text);
+    utterance.onend = () => setPlayingMessageId("");
+    utterance.onerror = () => setPlayingMessageId("");
+    try {
+      setPlayingMessageId(message.id);
+      window.speechSynthesis.speak(utterance);
+    } catch {
+      setPlayingMessageId("");
+    }
   };
 
   const propertyGroup = scenario.borrowerPath === "purchase" ? (
@@ -631,25 +849,80 @@ export default function SimplifiedBorrowerFunnel() {
         <span className="simple-sally-label"><span className="simple-sally-dot" />Need help? Ask Sally</span>
         <div className="simple-sally-composer" data-testid="sally-composer">
           <IconButton label="Add context">+</IconButton>
-          <input
-            aria-label="Ask Sally"
-            value={sallyInput}
-            onChange={(event) => setSallyInput(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") askSally();
-            }}
-            placeholder="Ask Sally about your mortgage"
-          />
+          {dictationState === "listening" || dictationState === "reviewing" ? (
+            <div
+              className="simple-listening-state"
+              data-testid="dictation-state"
+              role="status"
+              aria-live="polite"
+              aria-label={dictationState === "listening" ? "Listening for your question" : "Review dictated question"}
+            >
+              <div className="simple-waveform" aria-hidden="true" data-testid="dictation-waveform">
+                {waveformLevels.map((level, index) => (
+                  <span key={index} style={{ "--level": level }} />
+                ))}
+              </div>
+              <span>{dictationState === "listening" ? "Listening..." : dictationTranscript || "Ready to finish dictation"}</span>
+              <button type="button" onClick={cancelDictation}>Cancel</button>
+              <button type="button" onClick={finishDictation}>Finish</button>
+            </div>
+          ) : (
+            <input
+              aria-label="Ask Sally"
+              value={sallyInput}
+              onChange={(event) => setSallyInput(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") askSally();
+              }}
+              placeholder="Ask Sally about your mortgage"
+            />
+          )}
           <IconButton label="Dictate a question" onClick={startDictation} disabled={!canDictate}>
             <MicrophoneIcon />
           </IconButton>
           <IconButton label="Send to Sally" onClick={askSally}><ArrowUpIcon /></IconButton>
         </div>
-        {sallyExpanded ? (
-          <details className="simple-sally-response" open data-testid="sally-response">
-            <summary>Sally response</summary>
-            <p>{sallyThinking ? "Sally is thinking..." : sallyResponse}</p>
-          </details>
+        {dictationMessage || !canDictate ? (
+          <p className="simple-dictation-message" data-testid="dictation-message">
+            {dictationMessage || "Speech recognition is not available in this browser. You can still type your question."}
+          </p>
+        ) : null}
+        {sallyMessages.length || sallyThinking ? (
+          <div
+            className="simple-sally-thread"
+            data-testid="sally-thread"
+            ref={messagesRef}
+            tabIndex={0}
+            role="log"
+            aria-live="polite"
+            aria-label="Sally conversation"
+            onScroll={handleMessagesScroll}
+          >
+            {sallyMessages.map((message) => (
+              <article key={message.id} className={`simple-sally-bubble ${message.role}`} data-testid={`sally-message-${message.role}`}>
+                <p>{message.text}</p>
+                {message.role === "assistant" ? (
+                  <IconButton
+                    label={playingMessageId === message.id ? "Stop listening to Sally's response" : "Listen to Sally's response"}
+                    onClick={() => playSallyResponse(message)}
+                    disabled={!canSpeak}
+                  >
+                    {playingMessageId === message.id ? <StopIcon /> : <SpeakerIcon muted={false} />}
+                  </IconButton>
+                ) : null}
+              </article>
+            ))}
+            {sallyThinking ? <p className="simple-sally-bubble assistant">Sally is thinking...</p> : null}
+          </div>
+        ) : null}
+        {newMessageNotice ? (
+          <button type="button" className="simple-new-message" onClick={() => {
+            shouldAutoScrollRef.current = true;
+            messagesRef.current.scrollTop = messagesRef.current.scrollHeight;
+            setNewMessageNotice(false);
+          }}>
+            New Sally response
+          </button>
         ) : null}
       </section>
 

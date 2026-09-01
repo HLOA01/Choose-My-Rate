@@ -2059,6 +2059,151 @@ button.pricing-table-row {
   color: #9ca3af;
 }
 
+.simple-listening-state {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  gap: 8px;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 4px;
+  color: #ffffff;
+}
+
+.simple-listening-state > span {
+  overflow: hidden;
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.simple-listening-state button,
+.simple-new-message {
+  min-height: 34px;
+  border: 0;
+  border-radius: 999px;
+  padding: 0 11px;
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.12);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.simple-listening-state button:last-child {
+  color: #0f172a;
+  background: #f4c542;
+}
+
+.simple-waveform {
+  display: inline-flex;
+  gap: 3px;
+  align-items: center;
+  height: 28px;
+}
+
+.simple-waveform span {
+  width: 4px;
+  height: calc(8px + (20px * var(--level)));
+  border-radius: 999px;
+  background: #f4c542;
+  animation: simple-waveform-pulse 760ms ease-in-out infinite alternate;
+}
+
+.simple-waveform span:nth-child(2) {
+  animation-delay: 90ms;
+}
+
+.simple-waveform span:nth-child(3) {
+  animation-delay: 180ms;
+}
+
+.simple-waveform span:nth-child(4) {
+  animation-delay: 270ms;
+}
+
+.simple-waveform span:nth-child(5) {
+  animation-delay: 360ms;
+}
+
+@keyframes simple-waveform-pulse {
+  from {
+    transform: scaleY(0.72);
+  }
+
+  to {
+    transform: scaleY(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .simple-waveform span {
+    animation: none;
+  }
+}
+
+.simple-dictation-message {
+  margin: 4px 0 0;
+  color: #d1d5db;
+  font-size: 13px;
+}
+
+.simple-sally-thread {
+  display: grid;
+  gap: 8px;
+  max-height: 210px;
+  margin-top: 8px;
+  overflow-y: auto;
+  padding: 4px 2px 2px;
+  scrollbar-color: rgba(244, 197, 66, 0.65) rgba(255, 255, 255, 0.08);
+}
+
+.simple-sally-thread:focus-visible {
+  outline: 2px solid rgba(244, 197, 66, 0.65);
+  outline-offset: 3px;
+}
+
+.simple-sally-bubble {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  width: min(86%, 640px);
+  margin: 0;
+  padding: 9px 10px;
+  border-radius: 12px;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.simple-sally-bubble p {
+  margin: 0;
+}
+
+.simple-sally-bubble.borrower {
+  justify-self: end;
+  color: #ffffff;
+  background: rgba(244, 197, 66, 0.16);
+}
+
+.simple-sally-bubble.assistant {
+  justify-self: start;
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.08);
+  border-left: 3px solid #c1121f;
+}
+
+.simple-sally-bubble .simple-icon-button {
+  min-width: 34px !important;
+  min-height: 34px !important;
+}
+
+.simple-new-message {
+  justify-self: center;
+  margin-top: 6px;
+}
+
 .simple-cmr-page.revised .simple-sally-response {
   padding: 10px 14px;
   border: 0;
@@ -2590,6 +2735,18 @@ button.pricing-table-row {
 
   .simple-cmr-page.revised .simple-sally-composer input {
     font-size: 13px;
+  }
+
+  .simple-listening-state {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .simple-listening-state button {
+    min-height: 32px;
+  }
+
+  .simple-sally-thread {
+    max-height: 175px;
   }
 
   .simple-funnel,

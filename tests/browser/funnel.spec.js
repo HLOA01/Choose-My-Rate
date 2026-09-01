@@ -4,35 +4,81 @@ const badPageText = /NaN|Infinity|undefined/;
 const forbiddenText = /\b(?:pricing engine|returned lender option|request preview|autoplay|realtime|voice controls)\b/i;
 
 const returnedOptions = [
-  {
+  withBorrowerQuote({
     optionId: "qa-low-rate",
     program: "Conventional 30 Year Fixed",
     rate: 6.25,
     price: 0.875,
     paymentPI: 2633,
     estimatedCashToClose: 31000,
-  },
-  {
+  }),
+  withBorrowerQuote({
     optionId: "qa-par",
     program: "Conventional 30 Year Fixed",
     rate: 6.5,
     price: 0,
     paymentPI: 2731,
     estimatedCashToClose: 27500,
-  },
-  {
+  }),
+  withBorrowerQuote({
     optionId: "qa-credit",
     program: "Conventional 30 Year Fixed",
     rate: 6.75,
     price: -0.625,
     paymentPI: 2832,
     estimatedCashToClose: 24000,
-  },
+  }),
 ];
+
+function withBorrowerQuote(option, closingCostStatus = "complete") {
+  const loanAmount = 427500;
+  const price = Number(option.price || 0);
+  const pointsPercent = price > 0 ? price : 0;
+  const lenderCreditPercent = price < 0 ? Math.abs(price) : 0;
+  const pointsDollars = Math.round(loanAmount * (pointsPercent / 100));
+  const lenderCreditDollars = Math.round(loanAmount * (lenderCreditPercent / 100));
+  const estimatedBaseClosingCosts = closingCostStatus === "estimate_unavailable" ? null : 6200;
+
+  return {
+    ...option,
+    borrowerQuote: {
+      pricingOption: {
+        optionId: option.optionId,
+        rate: option.rate,
+        principalAndInterest: option.paymentPI,
+        pointsPercent,
+        pointsDollars,
+        lenderCreditPercent,
+        lenderCreditDollars,
+      },
+      closingCostEstimate: {
+        status: closingCostStatus,
+        feeScheduleVersion: closingCostStatus === "estimate_unavailable" ? null : "qa-fees-v1",
+        asOf: "2026-08-31T12:00:00.000Z",
+        fees: [],
+        estimatedBaseClosingCosts,
+        includedCategories: closingCostStatus === "estimate_unavailable" ? [] : ["lender", "title", "recording"],
+        excludedItems: ["down payment", "prepaid interest", "property taxes", "homeowners insurance"],
+        reasons: closingCostStatus === "estimate_unavailable" ? ["missing_fee_schedule"] : [],
+      },
+      estimatedClosingCharges:
+        estimatedBaseClosingCosts == null
+          ? null
+          : estimatedBaseClosingCosts + pointsDollars - lenderCreditDollars,
+    },
+  };
+}
 
 function quoteBodyFor(payload, mode) {
   if (mode === "empty") {
     return { status: "qa-local", options: [], message: "No mocked options" };
+  }
+  if (mode === "unavailable-estimate") {
+    return {
+      status: "qa-local",
+      pricingAsOf: "2026-08-31T12:00:00.000Z",
+      options: returnedOptions.map((option) => withBorrowerQuote(option, "estimate_unavailable")),
+    };
   }
 
   return {
@@ -40,14 +86,14 @@ function quoteBodyFor(payload, mode) {
     pricingAsOf: "2026-08-31T12:00:00.000Z",
     options: payload.loanTypePreference === "fha"
       ? [
-          {
+          withBorrowerQuote({
             optionId: "qa-fha-par",
             program: "FHA 30 Year Fixed",
             rate: 6.125,
             price: 0,
             paymentPI: 2582,
             estimatedCashToClose: 28500,
-          },
+          }),
         ]
       : returnedOptions,
   };
@@ -243,19 +289,23 @@ test("rate dial changes only among real options and updates tradeoff values", as
   await expect(page.getByTestId("selected-rate")).toHaveText("6.500%");
   await expect(page.getByTestId("selected-payment")).toHaveText("$2,731/mo P&I");
   await expect(page.getByTestId("rate-tradeoff")).toContainText("Principal & interest");
-  await expect(page.getByTestId("selected-points")).toHaveText("Closest to par");
-  await expect(page.getByTestId("selected-cash")).toHaveText("$27,500");
+  await expect(page.getByTestId("selected-adjustment")).toHaveText("No discount points or lender credit");
+  await expect(page.getByTestId("estimated-closing-costs")).toHaveText("$6,200");
+  await expect(page.getByTestId("estimated-closing-charges")).toHaveText("$6,200");
+  await expect(page.getByTestId("app-shell")).not.toContainText(/Cash to Close|Estimated cash to close/i);
 
   await page.getByRole("button", { name: "Next rate" }).click();
   await expect(page.getByTestId("selected-rate")).toHaveText("6.750%");
   await expect(page.getByTestId("selected-payment")).toHaveText("$2,832/mo P&I");
-  await expect(page.getByTestId("selected-points")).toHaveText("0.625% lender credit");
-  await expect(page.getByTestId("selected-cash")).toHaveText("$24,000");
+  await expect(page.getByTestId("selected-adjustment")).toHaveText("-$2,672 Lender credit (0.625%)");
+  await expect(page.getByTestId("estimated-closing-charges")).toHaveText("$3,528");
+  await expect(page.getByTestId("selected-adjustment")).toHaveClass(/credit/);
 
   await page.getByRole("button", { name: "Lowest rate" }).click();
   await expect(page.getByTestId("selected-rate")).toHaveText("6.250%");
-  await expect(page.getByTestId("selected-points")).toHaveText("0.875% points");
-  await expect(page.getByTestId("selected-cash")).toHaveText("$31,000");
+  await expect(page.getByTestId("selected-adjustment")).toHaveText("+$3,741 Discount points (0.875%)");
+  await expect(page.getByTestId("estimated-closing-charges")).toHaveText("$9,941");
+  await expect(page.getByTestId("selected-adjustment")).toHaveClass(/points/);
 
   await page.getByTestId("rate-wheel").press("ArrowRight");
   await expect(page.getByTestId("selected-rate")).toHaveText("6.500%");
@@ -285,6 +335,14 @@ test("application CTA and optional comparison stay below selected rate informati
   await submitPurchase(page);
   await page.getByTestId("application-cta").click();
   await expect(page.getByTestId("handoff-message")).toContainText("not configured yet");
+  const handoff = await page.evaluate(() => JSON.parse(window.sessionStorage.getItem("chooseMyRate.applicationHandoff.v1")));
+  expect(handoff).toMatchObject({
+    selectedOptionId: "qa-par",
+    selectedRate: 6.5,
+    closingCostEstimateVersion: "qa-fees-v1",
+    estimatedClosingCharges: 6200,
+    disclosureVersionAccepted: "closing-cost-prelim-v1",
+  });
   await page.getByTestId("comparison-trigger").click();
   await expect(page.getByTestId("comparison-result")).toContainText("FHA");
   await expect(page.getByTestId("comparison-result")).toContainText("Conventional");
@@ -331,7 +389,7 @@ test("Sally remains compact and text-first with scenario context", async ({ page
   await fillPurchaseProperty(page);
 
   await page.getByLabel("Ask Sally").fill("What should I compare?");
-  await page.getByRole("button", { name: "Send" }).click();
+  await page.getByRole("button", { name: "Send to Sally" }).click();
 
   await expect(page.getByTestId("sally-response")).toContainText("principal-and-interest payment");
   await expect(page.getByTestId("purchase-property-step")).toBeVisible();
@@ -346,6 +404,16 @@ test("disclosures are compact and expandable", async ({ page }) => {
   await page.getByText("Important rate information").click();
   await expect(page.getByTestId("disclosure")).toContainText("not a loan approval");
   await expect(page.getByTestId("disclosure")).toContainText("taxes, homeowners insurance, mortgage insurance, HOA dues");
+  await expect(page.getByTestId("disclosure")).toContainText("not a formal Loan Estimate");
+});
+
+test("estimate-unavailable state stays controlled without invented closing costs", async ({ page }) => {
+  await openApp(page, { mode: "unavailable-estimate" });
+  await submitPurchase(page);
+
+  await expect(page.getByTestId("estimated-closing-costs")).toHaveText("Unavailable");
+  await expect(page.getByTestId("estimated-closing-charges")).toHaveText("Unavailable");
+  await expect(page.getByTestId("closing-cost-status")).toContainText("unavailable until an approved HLOA fee schedule is connected");
 });
 
 test("mobile layout keeps one question group and no horizontal overflow", async ({ page }) => {

@@ -1959,6 +1959,7 @@ button.pricing-table-row {
 .simple-cmr-page.revised .simple-brand-subtitle {
   color: #f3f4f6;
   font-size: 16px;
+  font-weight: 650;
 }
 
 .simple-cmr-page.revised .simple-header-copy h1 {
@@ -2346,7 +2347,7 @@ button.pricing-table-row {
 
 .simple-tradeoff {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
   margin-top: 24px;
 }
@@ -2362,9 +2363,44 @@ button.pricing-table-row {
   display: block;
   margin-top: 8px;
   color: #ffffff;
-  font-size: clamp(22px, 3vw, 30px);
+  font-size: clamp(19px, 2vw, 26px);
   line-height: 1.05;
   font-weight: 800;
+}
+
+.simple-tradeoff strong.simple-adjustment {
+  font-size: clamp(16px, 1.4vw, 21px);
+  line-height: 1.22;
+}
+
+.simple-adjustment.credit {
+  color: #78e6a4;
+}
+
+.simple-adjustment.points {
+  color: #f4c542;
+}
+
+.simple-adjustment.unavailable {
+  color: #d1d5db;
+}
+
+.simple-cost-status,
+.simple-cost-disclosure {
+  max-width: 720px;
+  margin: 12px auto 0;
+  color: #d1d5db;
+  text-align: center;
+  line-height: 1.45;
+}
+
+.simple-cost-status {
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.simple-cost-disclosure {
+  font-size: 13px;
 }
 
 .simple-rate-note {

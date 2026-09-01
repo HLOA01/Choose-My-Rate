@@ -36,6 +36,10 @@ const INITIAL_SCENARIO = {
   annualIncome: "",
 };
 
+const CLOSING_COST_DISCLOSURE_VERSION = "closing-cost-prelim-v1";
+const COST_DISCLOSURE =
+  "Estimated closing costs do not include down payment, prepaid interest, property taxes, homeowners insurance, mortgage insurance, HOA dues, or initial escrow deposits. Final amounts are determined after application and verification.";
+
 function cleanNumber(value) {
   return String(value || "").replace(/[^\d.]/g, "");
 }
@@ -59,14 +63,6 @@ function formatPercent(value, digits = 3) {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return "-";
   return `${numeric.toFixed(digits)}%`;
-}
-
-function formatPoints(value) {
-  const numeric = Number(value || 0);
-  if (!Number.isFinite(numeric)) return "-";
-  if (numeric < 0) return `${formatPercent(Math.abs(numeric))} lender credit`;
-  if (numeric > 0) return `${formatPercent(numeric)} points`;
-  return "Closest to par";
 }
 
 function normalizeLoanType(value) {
@@ -134,6 +130,68 @@ function getValidationErrors(scenario) {
 
 function optionKey(option) {
   return option?.optionId || `${option?.rate}-${option?.price}-${option?.paymentPI}-${option?.estimatedCashToClose}`;
+}
+
+function getBorrowerQuote(option) {
+  return option?.borrowerQuote || null;
+}
+
+function getQuotePricingOption(option) {
+  return getBorrowerQuote(option)?.pricingOption || null;
+}
+
+function getClosingCostEstimate(option) {
+  return getBorrowerQuote(option)?.closingCostEstimate || null;
+}
+
+function getEstimatedClosingCharges(option) {
+  const value = getBorrowerQuote(option)?.estimatedClosingCharges;
+  if (value == null) return null;
+  return Number.isFinite(Number(value)) ? Number(value) : null;
+}
+
+function formatRateAdjustment(option) {
+  const pricingOption = getQuotePricingOption(option);
+  if (!pricingOption) return { label: "Unavailable", className: "unavailable" };
+
+  if (Number(pricingOption.lenderCreditDollars) > 0) {
+    return {
+      label: `-${formatCurrency(pricingOption.lenderCreditDollars)} Lender credit (${formatPercent(pricingOption.lenderCreditPercent)})`,
+      className: "credit",
+    };
+  }
+
+  if (Number(pricingOption.pointsDollars) > 0) {
+    return {
+      label: `+${formatCurrency(pricingOption.pointsDollars)} Discount points (${formatPercent(pricingOption.pointsPercent)})`,
+      className: "points",
+    };
+  }
+
+  return { label: "No discount points or lender credit", className: "neutral" };
+}
+
+function formatEstimatedBaseClosingCosts(option) {
+  const estimate = getClosingCostEstimate(option);
+  if (!estimate || estimate.estimatedBaseClosingCosts == null) return "Unavailable";
+  return formatCurrency(estimate.estimatedBaseClosingCosts);
+}
+
+function formatEstimatedClosingCharges(option) {
+  const charges = getEstimatedClosingCharges(option);
+  return charges == null ? "Unavailable" : formatCurrency(charges);
+}
+
+function getClosingCostStatusText(option) {
+  const estimate = getClosingCostEstimate(option);
+  if (!estimate) return "Closing-cost estimate was not returned.";
+  if (estimate.status === "estimate_unavailable") {
+    return "Estimated closing costs are unavailable until an approved HLOA fee schedule is connected.";
+  }
+  if (estimate.status === "estimate_incomplete") {
+    return "Estimated closing costs include only currently configured fee items.";
+  }
+  return `Fee schedule ${estimate.feeScheduleVersion || "active"} as of ${new Date(estimate.asOf).toLocaleDateString()}.`;
 }
 
 function pickParOption(options) {
@@ -204,6 +262,27 @@ function MicrophoneIcon() {
   );
 }
 
+function ArrowUpIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M12 4a1 1 0 0 1 .7.29l5 5a1 1 0 0 1-1.4 1.42L13 7.41V19a1 1 0 1 1-2 0V7.41l-3.3 3.3a1 1 0 0 1-1.4-1.42l5-5A1 1 0 0 1 12 4Z" />
+    </svg>
+  );
+}
+
+function SpeakerIcon({ muted }) {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M4 9a2 2 0 0 1 2-2h3l4-3a1 1 0 0 1 1.6.8v14.4a1 1 0 0 1-1.6.8l-4-3H6a2 2 0 0 1-2-2V9Z" />
+      {muted ? (
+        <path d="M18.3 8.3a1 1 0 0 1 1.4 0L21 9.6l1.3-1.3a1 1 0 0 1 1.4 1.4L22.4 11l1.3 1.3a1 1 0 0 1-1.4 1.4L21 12.4l-1.3 1.3a1 1 0 0 1-1.4-1.4l1.3-1.3-1.3-1.3a1 1 0 0 1 0-1.4Z" />
+      ) : (
+        <path d="M18 8.2a1 1 0 0 1 1.4 0 5.4 5.4 0 0 1 0 7.6A1 1 0 0 1 18 14.4a3.4 3.4 0 0 0 0-4.8 1 1 0 0 1 0-1.4Z" />
+      )}
+    </svg>
+  );
+}
+
 export default function SimplifiedBorrowerFunnel() {
   const [scenario, setScenario] = useState(INITIAL_SCENARIO);
   const [step, setStep] = useState(0);
@@ -228,6 +307,8 @@ export default function SimplifiedBorrowerFunnel() {
   const previousOption = selectedIndex > 0 ? options[selectedIndex - 1] : null;
   const nextOption = selectedIndex < options.length - 1 ? options[selectedIndex + 1] : null;
   const isResults = pricingState === "ready" && options.length > 0;
+  const selectedBorrowerQuote = getBorrowerQuote(selectedOption);
+  const selectedRateAdjustment = formatRateAdjustment(selectedOption);
   const canDictate =
     typeof window !== "undefined" && Boolean(window.SpeechRecognition || window.webkitSpeechRecognition);
 
@@ -372,6 +453,21 @@ export default function SimplifiedBorrowerFunnel() {
       setHandoffMessage("Choose a rate option before continuing.");
       return;
     }
+    const handoff = {
+      scenario,
+      pricingPayload,
+      selectedOptionId: selectedOption.optionId,
+      pricingAsOf: quote?.pricingAsOf || selectedBorrowerQuote?.closingCostEstimate?.asOf || null,
+      selectedRate: selectedOption.rate,
+      pointsPercent: selectedBorrowerQuote?.pricingOption?.pointsPercent ?? null,
+      pointsDollars: selectedBorrowerQuote?.pricingOption?.pointsDollars ?? null,
+      lenderCreditPercent: selectedBorrowerQuote?.pricingOption?.lenderCreditPercent ?? null,
+      lenderCreditDollars: selectedBorrowerQuote?.pricingOption?.lenderCreditDollars ?? null,
+      closingCostEstimateVersion: selectedBorrowerQuote?.closingCostEstimate?.feeScheduleVersion ?? null,
+      estimatedClosingCharges: selectedBorrowerQuote?.estimatedClosingCharges ?? null,
+      disclosureVersionAccepted: CLOSING_COST_DISCLOSURE_VERSION,
+    };
+    window.sessionStorage?.setItem("chooseMyRate.applicationHandoff.v1", JSON.stringify(handoff));
     if (!APPLICATION_URL) {
       setHandoffMessage("Application handoff is not configured yet. Your selected rate stays here.");
       return;
@@ -511,7 +607,7 @@ export default function SimplifiedBorrowerFunnel() {
           <IconButton label="Dictate a question" onClick={startDictation} disabled={!canDictate}>
             <MicrophoneIcon />
           </IconButton>
-          <IconButton label="Send" onClick={askSally}>→</IconButton>
+          <IconButton label="Send to Sally" onClick={askSally}><ArrowUpIcon /></IconButton>
         </div>
         {sallyExpanded ? (
           <details className="simple-sally-response" open data-testid="sally-response">
@@ -615,13 +711,23 @@ export default function SimplifiedBorrowerFunnel() {
             <button type="button" onClick={() => selectOption(options[0])}>Lowest rate</button>
             <button type="button" onClick={() => selectOption(pickParOption(options))}>Closest to par</button>
             <button type="button" onClick={() => selectOption(options[options.length - 1])}>Most credit</button>
-            <IconButton label={soundOn ? "Turn sound off" : "Turn sound on"} onClick={() => setSoundOn((current) => !current)}>{soundOn ? "🔊" : "🔇"}</IconButton>
+            <IconButton label={soundOn ? "Turn sound off" : "Turn sound on"} onClick={() => setSoundOn((current) => !current)}>
+              <SpeakerIcon muted={!soundOn} />
+            </IconButton>
           </div>
           <div className="simple-tradeoff" data-testid="rate-tradeoff">
             <div><span>Principal &amp; interest</span><strong>{formatCurrency(selectedOption?.paymentPI)}</strong></div>
-            <div><span>Points or lender credit</span><strong data-testid="selected-points">{formatPoints(selectedOption?.price)}</strong></div>
-            <div><span>Estimated cash to close</span><strong data-testid="selected-cash">{formatCurrency(selectedOption?.estimatedCashToClose)}</strong></div>
+            <div>
+              <span>Rate cost or credit</span>
+              <strong className={`simple-adjustment ${selectedRateAdjustment.className}`} data-testid="selected-adjustment">
+                {selectedRateAdjustment.label}
+              </strong>
+            </div>
+            <div><span>Estimated closing costs</span><strong data-testid="estimated-closing-costs">{formatEstimatedBaseClosingCosts(selectedOption)}</strong></div>
+            <div><span>Estimated closing charges</span><strong data-testid="estimated-closing-charges">{formatEstimatedClosingCharges(selectedOption)}</strong></div>
           </div>
+          <p className="simple-cost-status" data-testid="closing-cost-status">{getClosingCostStatusText(selectedOption)}</p>
+          <p className="simple-cost-disclosure" data-testid="cost-disclosure">{COST_DISCLOSURE}</p>
           <p className="simple-rate-note">Lower rates may cost more upfront. Higher rates may provide lender credit.</p>
           <button type="button" className="simple-primary-button application" data-testid="application-cta" onClick={handleApplication}>Continue to Application</button>
           {handoffMessage ? <div className="simple-safe-message" data-testid="handoff-message">{handoffMessage}</div> : null}
@@ -644,9 +750,9 @@ export default function SimplifiedBorrowerFunnel() {
         <summary>Important rate information</summary>
         <p>
           Displayed pricing is not a loan approval, commitment, or rate lock. Rates, points, lender credits,
-          payments, and cash-to-close estimates are subject to change. Principal and interest are shown only when
+          payments, and estimated closing charges are subject to change. Principal and interest are shown only when
           available; taxes, homeowners insurance, mortgage insurance, HOA dues, APR, fees, and other applicable housing
-          expenses are not included unless specifically supplied.
+          expenses are not included unless specifically supplied. The figures shown are not a formal Loan Estimate.
         </p>
       </details>
     </main>

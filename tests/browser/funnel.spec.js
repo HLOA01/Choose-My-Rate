@@ -238,9 +238,12 @@ test("revised funnel opens with compact brand, one-line Sally composer, and purp
 
   await expect(page.locator(".simple-brand-title", { hasText: "CHOOSE MY RATE" })).toBeVisible();
   await expect(page.getByText("Powered by Home Lenders of America")).toBeVisible();
-  await expect(page.getByRole("heading", { name: "See your real mortgage rate options." })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Choose your mortgage rate." })).toBeVisible();
+  await expect(page.getByText("See the rate, payment, and upfront cost--then choose what works for you.")).toBeVisible();
   await expect(page.getByPlaceholder("Ask Sally about your mortgage")).toBeVisible();
   await expect(page.getByRole("button", { name: "Dictate a question" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Send to Sally" }).locator("svg")).toHaveCount(1);
+  await expect(page.getByRole("button", { name: "Send to Sally" })).toHaveText("");
   await expect(page.getByTestId("progress-indicator")).toHaveText("1 of 3");
   await expect(page.getByTestId("purpose-step")).toBeVisible();
   await expect(page.getByTestId("comparison-trigger")).toHaveCount(0);

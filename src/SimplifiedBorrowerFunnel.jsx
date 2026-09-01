@@ -586,8 +586,8 @@ export default function SimplifiedBorrowerFunnel() {
           <p className="simple-brand-subtitle">Powered by Home Lenders of America</p>
         </div>
         <div className="simple-header-copy">
-          <h1>See your real mortgage rate options.</h1>
-          <p>Answer a few questions, choose the option that works for you, and continue to your application.</p>
+          <h1>Choose your mortgage rate.</h1>
+          <p>See the rate, payment, and upfront cost--then choose what works for you.</p>
         </div>
       </header>
 

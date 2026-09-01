@@ -1,263 +1,315 @@
 import { expect, test } from "@playwright/test";
 
-const forbiddenSallyText = /\b(?:approved for|you are approved|you're approved|rate is locked|locked in|guaranteed|guarantee|PRMG|Rocket|loanDepot|Guaranteed Rate|UWM|PennyMac)\b/i;
 const badPageText = /NaN|Infinity|undefined/;
+const forbiddenSallyText = /\b(?:approved|approval|rate lock|locked in|guaranteed|autoplay|realtime|voice control)\b/i;
+const restoreKey = "chooseMyRate.simpleScenario.v1";
 
-async function blockExternalNetwork(page) {
-  await page.route("**/*", (route) => {
+const returnedOptions = [
+  {
+    optionId: "qa-lower-rate",
+    program: "Conventional 30 Year Fixed",
+    rate: 6.25,
+    price: 0.75,
+    paymentPI: 2633,
+    estimatedCashToClose: 31000,
+  },
+  {
+    optionId: "qa-par",
+    program: "Conventional 30 Year Fixed",
+    rate: 6.5,
+    price: 0,
+    paymentPI: 2731,
+    estimatedCashToClose: 27500,
+  },
+  {
+    optionId: "qa-credit",
+    program: "Conventional 30 Year Fixed",
+    rate: 6.75,
+    price: -0.625,
+    paymentPI: 2832,
+    estimatedCashToClose: 24000,
+  },
+];
+
+function quoteBodyFor(payload, mode) {
+  if (mode === "empty") {
+    return { status: "qa-local", options: [], message: "No mocked options" };
+  }
+
+  const baseOptions = payload.loanTypePreference === "fha"
+    ? [
+        {
+          optionId: "qa-fha-par",
+          program: "FHA 30 Year Fixed",
+          rate: 6.125,
+          price: 0,
+          paymentPI: 2582,
+          estimatedCashToClose: 28500,
+        },
+      ]
+    : returnedOptions;
+
+  return {
+    status: "qa-local",
+    pricingAsOf: "2026-08-31T12:00:00.000Z",
+    options: baseOptions,
+  };
+}
+
+async function installNetworkBoundary(page, options = {}) {
+  const capturedPayloads = [];
+  const blockedHosts = [];
+  const mode = options.mode || "success";
+
+  await page.route("**/*", async (route) => {
     const url = new URL(route.request().url());
+
     if (url.hostname === "127.0.0.1" && url.pathname === "/__qa-pricing/pricing/quote") {
-      route.fulfill({
+      if (mode === "error") {
+        await route.fulfill({
+          status: 503,
+          contentType: "application/json",
+          body: JSON.stringify({ error: "QA pricing failure" }),
+        });
+        return;
+      }
+
+      const payload = route.request().method() === "POST" ? route.request().postDataJSON() : {};
+      capturedPayloads.push(payload);
+      await route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify({
-          status: "qa-local",
-          pricingAsOf: "2026-08-31T12:00:00.000Z",
-          options: [
-            {
-              optionId: "qa-lower-payment",
-              program: "Conventional 30 Year Fixed",
-              rate: 6.25,
-              price: 0.75,
-              paymentPI: 2633,
-              paymentPITI: 3230,
-              estimatedCashToClose: 31000,
-              tags: ["Lower Rate"],
-            },
-            {
-              optionId: "qa-balanced",
-              program: "Conventional 30 Year Fixed",
-              rate: 6.5,
-              price: 0,
-              paymentPI: 2731,
-              paymentPITI: 3328,
-              estimatedCashToClose: 27500,
-              tags: ["Near Par"],
-            },
-            {
-              optionId: "qa-lower-upfront",
-              program: "Conventional 30 Year Fixed",
-              rate: 6.75,
-              price: -0.625,
-              paymentPI: 2832,
-              paymentPITI: 3429,
-              estimatedCashToClose: 24000,
-              tags: ["Higher Credit"],
-            },
-          ],
-        }),
+        body: JSON.stringify(quoteBodyFor(payload, mode)),
       });
       return;
     }
+
     if (url.hostname === "127.0.0.1" || url.hostname === "localhost") {
-      route.continue();
+      await route.continue();
       return;
     }
-    route.abort("blockedbyclient");
+
+    blockedHosts.push(url.hostname);
+    await route.abort("blockedbyclient");
   });
+
+  return { blockedHosts, capturedPayloads };
 }
 
-async function openApp(page) {
-  await page.addInitScript(() => {
-    window.localStorage.setItem("choose-my-rate-sally-chat-mode", "rules");
-  });
-  await blockExternalNetwork(page);
+async function openApp(page, options = {}) {
+  await page.addInitScript(() => window.localStorage.clear());
+  const boundary = await installNetworkBoundary(page, options);
   await page.goto("/");
-  await expect(page.locator(".cmr-page")).toBeVisible();
+  await expect(page.getByTestId("app-shell")).toBeVisible();
+  return boundary;
 }
 
-async function scenarioControl(page, label) {
-  return page
-    .locator(".scenario-control")
-    .filter({ has: page.locator(".scenario-control-label", { hasText: label }) });
+async function fillPurchaseScenario(page) {
+  await page.getByTestId("home-price").fill("450000");
+  await page.getByTestId("down-payment").fill("22500");
+  await page.getByTestId("property-type").selectOption("single_family");
+  await page.getByTestId("occupancy").selectOption("primary");
+  await page.getByTestId("credit-range").selectOption("740-759");
+  await page.getByTestId("zip-code").fill("92660");
+  await page.getByTestId("annual-income").fill("145000");
 }
 
-async function fillScenarioInput(page, label, value) {
-  const control = await scenarioControl(page, label);
-  await control.locator("input").fill(String(value));
+async function fillRefinanceScenario(page, goal = "lower_payment") {
+  await page.getByRole("button", { name: "Refinance" }).click();
+  await page.getByTestId("property-value").fill("650000");
+  await page.getByTestId("current-balance").fill("400000");
+  await page.getByTestId("refinance-goal").selectOption(goal);
+  await page.getByTestId("current-rate").fill("7.125");
+  if (goal === "cash_out") {
+    await page.getByTestId("cash-out-amount").fill("50000");
+  }
+  await page.getByTestId("property-type").selectOption("single_family");
+  await page.getByTestId("occupancy").selectOption("primary");
+  await page.getByTestId("credit-range").selectOption("760+");
+  await page.getByTestId("zip-code").fill("92660");
+  await page.getByTestId("annual-income").fill("180000");
 }
 
-async function selectScenarioOption(page, label, value) {
-  const control = await scenarioControl(page, label);
-  await control.locator("select").selectOption(value);
+async function submitScenario(page) {
+  await page.getByTestId("submit-scenario").click();
+  await expect(page.getByTestId("pricing-status")).toContainText("Live rate options returned");
 }
 
-async function sendSallyMessage(page, message) {
-  await page.locator(".conversation-input").fill(message);
-  await page.getByRole("button", { name: /start my application|thinking/i }).click();
+async function expectCleanPage(page) {
+  await expect(page.getByTestId("app-shell")).not.toContainText(badPageText);
+  await expect(page.getByTestId("sally-card")).not.toContainText(forbiddenSallyText);
 }
 
-async function expectNoBadPageText(page) {
-  await expect(page.locator(".cmr-page")).not.toContainText(badPageText);
-}
-
-async function expectNoForbiddenSallyText(page) {
-  await expect(page.locator(".sally-section")).not.toContainText(forbiddenSallyText);
-}
-
-test("app loads with current-main purchase controls", async ({ page }) => {
+test("simplified borrower layout shows brand, primary paths, and Sally composer", async ({ page }) => {
   await openApp(page);
 
-  await expect(page.getByText("CHOOSE MY RATE")).toBeVisible();
-  await expect(page.getByTestId("borrower-guided-flow")).toBeVisible();
-  await expect(page.getByTestId("sally-side-assistant")).toBeVisible();
-  await expect(page.getByText("Your Scenario")).toBeVisible();
-  await expect(page.getByText("Pricing Engine")).toBeVisible();
-  await expect(page.locator(".conversation-input")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Start My Application" })).toBeVisible();
-  await expect(page.locator(".scenario-control-label", { hasText: "Loan Purpose" })).toBeVisible();
-  await expect(page.locator(".scenario-control-label", { hasText: "Purchase Price" })).toBeVisible();
-  await expect(page.locator(".scenario-control-label", { hasText: "Down Payment" })).toBeVisible();
-  await expect(page.locator(".scenario-control-label", { hasText: "ZIP Code" })).toBeVisible();
-  await expectNoBadPageText(page);
+  await expect(page.locator(".simple-brand-title", { hasText: "CHOOSE MY RATE" })).toBeVisible();
+  await expect(page.getByText("Powered by Home Lenders of America.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Purchase" })).toHaveClass(/active/);
+  await expect(page.getByRole("button", { name: "Refinance" })).toBeVisible();
+  await expect(page.getByTestId("sally-composer")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Use microphone" })).toBeVisible();
+  await expect(page.getByTestId("submit-scenario")).toHaveText("View Live Rates");
+  await expectCleanPage(page);
 });
 
-test("manual purchase scenario updates local payment estimate without external calls", async ({ page }) => {
-  const externalRequests = [];
-  await page.route("**/*", (route) => {
-    const url = new URL(route.request().url());
-    if (url.hostname === "127.0.0.1" && url.pathname === "/__qa-pricing/pricing/quote") {
-      route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({
-          status: "qa-local",
-          options: [
-            {
-              optionId: "qa-balanced",
-              program: "Conventional 30 Year Fixed",
-              rate: 6.5,
-              price: 0,
-              paymentPI: 2731,
-              paymentPITI: 3328,
-              estimatedCashToClose: 27500,
-              tags: ["Near Par"],
-            },
-          ],
-        }),
-      });
-      return;
-    }
-    if (url.hostname === "127.0.0.1" || url.hostname === "localhost") {
-      route.continue();
-      return;
-    }
-    externalRequests.push(route.request().url());
-    route.abort("blockedbyclient");
+test("purchase scenario posts through the existing pricing boundary", async ({ page }) => {
+  const { capturedPayloads, blockedHosts } = await openApp(page);
+
+  await fillPurchaseScenario(page);
+  await submitScenario(page);
+
+  expect(capturedPayloads).toHaveLength(1);
+  expect(capturedPayloads[0]).toMatchObject({
+    purchasePrice: 450000,
+    loanAmount: 427500,
+    creditScore: 750,
+    loanPurpose: "purchase",
+    loanTypePreference: "conventional",
+    propertyType: "single_family",
+    occupancy: "primary",
+    zipCode: "92660",
   });
-
-  await page.goto("/");
-  await fillScenarioInput(page, "Purchase Price", "450000");
-  await fillScenarioInput(page, "Down Payment", "22500");
-  await fillScenarioInput(page, "Credit Score", "720");
-  await fillScenarioInput(page, "ZIP Code", "92660");
-  await page.getByTestId("borrower-submit-scenario").click();
-
-  await expect(page.locator(".payment-value")).not.toHaveText("");
-  await expect(page.getByTestId("borrower-rate-cards")).toContainText("Balanced Option");
-  expect(externalRequests).toEqual([]);
-  await expectNoBadPageText(page);
+  expect(capturedPayloads[0]).not.toHaveProperty("annualIncome");
+  expect(blockedHosts).toEqual([]);
 });
 
-test("Sally rules mode updates purchase scenario locally", async ({ page }) => {
+test("rate wheel moves only through returned options and updates selected pricing", async ({ page }) => {
   await openApp(page);
+  await fillPurchaseScenario(page);
+  await submitScenario(page);
 
-  await sendSallyMessage(page, "I want to buy a home for $425,000 with 5% down and my score is 720 in 92660.");
+  await expect(page.getByTestId("selected-rate")).toHaveText("6.500%");
+  await expect(page.getByTestId("selected-payment")).toHaveText("$2,731");
+  await expect(page.getByTestId("selected-points")).toHaveText("Closest to par");
+  await expect(page.getByTestId("rate-options").locator("button")).toHaveCount(3);
+  await expect(page.getByLabel("Rate wheel")).toHaveAttribute("max", "2");
 
-  await expect(page.locator(".latest-answer-inline")).toContainText("425,000");
-  await expect(page.locator(".question-stream")).toContainText(/zip|updated|scenario/i);
-  await expectNoForbiddenSallyText(page);
-  await expectNoBadPageText(page);
+  await page.getByTestId("rate-wheel").getByRole("button", { name: "6.750%" }).click();
+  await expect(page.getByTestId("selected-rate")).toHaveText("6.750%");
+  await expect(page.getByTestId("selected-payment")).toHaveText("$2,832");
+  await expect(page.getByTestId("selected-points")).toHaveText("0.625% lender credit");
+  await expect(page.getByTestId("selected-cash")).toHaveText("$24,000");
 });
 
-test("refinance selection swaps purchase fields for value and loan amount", async ({ page }) => {
-  await openApp(page);
+test("refinance scenario and cash-out amount map to pricing payload", async ({ page }) => {
+  const { capturedPayloads } = await openApp(page);
 
-  await page.getByTestId("borrower-goal-refinance").click();
-  await selectScenarioOption(page, "Loan Purpose", "refinance");
+  await fillRefinanceScenario(page, "cash_out");
+  await submitScenario(page);
 
-  await expect(page.locator(".scenario-control-label", { hasText: "Estimated Value" })).toBeVisible();
-  await expect(page.locator(".scenario-control-label", { hasText: "Purchase Price" })).toHaveCount(0);
-  await fillScenarioInput(page, "Estimated Value", "650000");
-  await fillScenarioInput(page, "Loan Amount", "400000");
-  await fillScenarioInput(page, "Credit Score", "740");
-  await fillScenarioInput(page, "ZIP Code", "92660");
-
-  await expect(page.locator(".payment-value")).not.toHaveText("");
-  await expectNoBadPageText(page);
+  expect(capturedPayloads).toHaveLength(1);
+  expect(capturedPayloads[0]).toMatchObject({
+    purchasePrice: 650000,
+    loanAmount: 450000,
+    creditScore: 780,
+    loanPurpose: "cash_out",
+    zipCode: "92660",
+  });
 });
 
-test("borrower journey advances purchase path and shows rate-card step", async ({ page }) => {
-  await openApp(page);
+test("incomplete scenarios validate before pricing is requested", async ({ page }) => {
+  const { capturedPayloads } = await openApp(page);
 
-  await page.getByTestId("borrower-goal-buy").click();
-  await page.getByTestId("borrower-flow-next").click();
-  await expect(page.getByTestId("borrower-step-property")).toBeVisible();
-  await page.getByTestId("borrower-flow-next").click();
-  await expect(page.getByTestId("borrower-step-loan")).toBeVisible();
-  await page.getByTestId("borrower-flow-next").click();
-  await page.getByTestId("borrower-flow-next").click();
-  await expect(page.getByTestId("borrower-step-rate-options")).toBeVisible();
+  await page.getByTestId("submit-scenario").click();
+
+  await expect(page.getByTestId("validation-message")).toContainText("Home price is required");
+  expect(capturedPayloads).toEqual([]);
 });
 
-test("FHA versus Conventional comparison opens through live pricing boundary", async ({ page }) => {
-  await openApp(page);
+test("FHA versus Conventional comparison uses mocked returned pricing only", async ({ page }) => {
+  const { capturedPayloads } = await openApp(page);
 
-  await fillScenarioInput(page, "Purchase Price", "450000");
-  await fillScenarioInput(page, "Down Payment", "22500");
-  await fillScenarioInput(page, "Credit Score", "720");
-  await fillScenarioInput(page, "ZIP Code", "92660");
-  await page.getByTestId("fha-conventional-compare").click();
+  await fillPurchaseScenario(page);
+  await page.getByRole("button", { name: "Compare" }).click();
 
-  await expect(page.getByTestId("loan-comparison-panel")).toBeVisible();
-  await expect(page.getByTestId("loan-comparison-panel")).toContainText("FHA");
-  await expect(page.getByTestId("loan-comparison-panel")).toContainText("Conventional");
+  await expect(page.getByTestId("comparison-result")).toContainText("FHA");
+  await expect(page.getByTestId("comparison-result")).toContainText("Conventional");
+  expect(capturedPayloads.map((payload) => payload.loanTypePreference)).toEqual(["fha", "conventional"]);
 });
 
-test("saved non-identifying scenario can be restored", async ({ page }) => {
-  await page.addInitScript(() => {
+test("saved scenario restore keeps non-identifying borrower fields", async ({ page }) => {
+  await page.addInitScript((key) => {
     window.localStorage.setItem(
-      "chooseMyRate.guestScenario.v1",
+      key,
       JSON.stringify({
-        version: 1,
         savedAt: Date.now(),
-        selectedBorrowerGoal: "buy",
-        borrowerFlowStep: "loan",
         scenario: {
-          loanPurpose: "purchase",
-          purchasePrice: "455000",
+          borrowerPath: "purchase",
+          homePrice: "455000",
           downPayment: "22750",
-          loanAmount: "432250",
-          creditScore: "730",
-          loanType: "Conventional",
+          propertyType: "single_family",
           occupancy: "primary",
+          creditRange: "720-739",
           zipCode: "92660",
+          annualIncome: "135000",
         },
       }),
     );
+  }, restoreKey);
+
+  await installNetworkBoundary(page);
+  await page.goto("/");
+  await expect(page.getByTestId("saved-scenario-restore")).toBeVisible();
+  await page.getByRole("button", { name: "Restore" }).click();
+  await expect(page.getByTestId("home-price")).toHaveValue("455000");
+  await expect(page.getByTestId("annual-income")).toHaveValue("135000");
+});
+
+test("Sally remains text-first and receives scenario context without voice autoplay", async ({ page }) => {
+  await openApp(page);
+  await fillPurchaseScenario(page);
+
+  await page.getByLabel("Ask Sally").fill("What should I compare first?");
+  await page.getByRole("button", { name: "Send" }).click();
+
+  await expect(page.getByTestId("sally-messages")).toContainText("current scenario");
+  await expect(page.getByTestId("sally-card")).not.toContainText(/spoken|autoplay|realtime|voice controls/i);
+  await expectCleanPage(page);
+});
+
+test("empty and error pricing states do not invent options", async ({ page }) => {
+  await openApp(page, { mode: "empty" });
+  await fillPurchaseScenario(page);
+  await page.getByTestId("submit-scenario").click();
+  await expect(page.getByTestId("empty-results")).toBeVisible();
+  await expect(page.getByTestId("rate-options")).toHaveCount(0);
+
+  const errorPage = await page.context().newPage();
+  await openApp(errorPage, { mode: "error" });
+  await fillPurchaseScenario(errorPage);
+  await errorPage.getByTestId("submit-scenario").click();
+  await expect(errorPage.getByTestId("pricing-error")).toContainText("No rates are shown");
+  await expect(errorPage.getByTestId("rate-options")).toHaveCount(0);
+});
+
+test("mobile layout fits 390px viewport and keeps high-contrast colors", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openApp(page);
+
+  const metrics = await page.evaluate(() => {
+    const brand = getComputedStyle(document.querySelector(".simple-brand-title")).color;
+    const active = getComputedStyle(document.querySelector(".simple-path-toggle button.active")).backgroundColor;
+    const heading = getComputedStyle(document.querySelector(".simple-hero-copy h1")).color;
+    return {
+      brand,
+      active,
+      heading,
+      clientWidth: document.documentElement.clientWidth,
+      scrollWidth: document.documentElement.scrollWidth,
+    };
   });
 
-  await openApp(page);
-  await expect(page.getByTestId("saved-scenario-restore")).toBeVisible();
-  await page.getByTestId("saved-scenario-continue").click();
-  await expect(page.locator(".scenario-control").filter({ hasText: "Purchase Price" }).locator("input")).toHaveValue("455000");
-  await expect(page.getByTestId("borrower-step-loan")).toBeVisible();
+  expect(metrics.scrollWidth).toBeLessThanOrEqual(metrics.clientWidth);
+  expect(metrics.brand).toBe("rgb(244, 197, 66)");
+  expect(metrics.active).toBe("rgb(193, 18, 31)");
+  expect(metrics.heading).toBe("rgb(255, 255, 255)");
 });
 
 test("QA blocks browser requests to non-localhost endpoints", async ({ page }) => {
-  const blocked = [];
-  await page.route("**/*", (route) => {
-    const url = new URL(route.request().url());
-    if (url.hostname === "127.0.0.1" || url.hostname === "localhost") {
-      route.continue();
-      return;
-    }
-    blocked.push(url.hostname);
-    route.abort("blockedbyclient");
-  });
+  const { blockedHosts } = await openApp(page);
 
-  await page.goto("/");
   await page.evaluate(() => fetch("https://example.com/blocked-by-qa").catch(() => null));
 
-  expect(blocked).toEqual(["example.com"]);
+  expect(blockedHosts).toEqual(["example.com"]);
 });

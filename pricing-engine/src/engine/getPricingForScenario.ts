@@ -1,4 +1,9 @@
 import { pool } from "../db/repositories/db.js";
+import { assembleBorrowerQuote } from "../closingCosts/borrowerQuoteAssembler.js";
+import {
+  estimateClosingCosts,
+  type ClosingCostFeeSchedule,
+} from "../closingCosts/closingCostEstimator.js";
 import { getPlatformControl } from "../db/repositories/platformControlRepository.js";
 import { getRowsForVersion } from "../db/repositories/pricingRowRepository.js";
 import { getLatestLiveVersion } from "../db/repositories/pricingVersionRepository.js";
@@ -16,6 +21,7 @@ interface PricingDependencies {
   getPlatformControl: () => Promise<PlatformControl>;
   getLatestLiveVersion: () => Promise<PricingVersion | null>;
   getRowsForVersion: (versionId: string) => Promise<PricingRow[]>;
+  closingCostFeeSchedule?: ClosingCostFeeSchedule | null;
 }
 
 export async function getPricingForScenarioWithDependencies(
@@ -85,12 +91,22 @@ export async function getPricingForScenarioWithDependencies(
     };
   }
 
+  const closingCostEstimate = estimateClosingCosts(
+    completeScenario,
+    dependencies.closingCostFeeSchedule ?? null,
+    liveVersion.publishedAt ?? liveVersion.createdAt,
+  );
+  const options = rankBestExecution(rateStackRows, completeScenario).map((option) => ({
+    ...option,
+    borrowerQuote: assembleBorrowerQuote(option, closingCostEstimate, completeScenario),
+  }));
+
   return {
     status: control.pricingStatus,
     banner: control.pricingStatus === "warning" ? control.bannerMessage : null,
     pricingVersionId: liveVersion.id,
     pricingAsOf: liveVersion.publishedAt?.toISOString() ?? liveVersion.createdAt.toISOString(),
-    options: rankBestExecution(rateStackRows, completeScenario),
+    options,
     leadCaptureEnabled: control.leadCaptureEnabled,
     callbackEnabled: control.callbackEnabled,
   };

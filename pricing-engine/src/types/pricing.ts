@@ -1,4 +1,5 @@
 import type { PlatformPricingStatus } from "../db/models/platformControl.js";
+import type { BorrowerQuote } from "../closingCosts/borrowerQuoteAssembler.js";
 
 export type LoanType =
   | "conventional"
@@ -43,6 +44,7 @@ export interface BorrowerPricingOption {
   estimatedCashToClose: number;
   tags: string[];
   displayLender: false;
+  borrowerQuote?: BorrowerQuote;
 }
 
 export interface PricingQuoteResponse {

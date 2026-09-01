@@ -95,6 +95,49 @@ async function installNetworkBoundary(page, options = {}) {
 
 async function openApp(page, options = {}) {
   await page.addInitScript(() => window.localStorage.clear());
+  if (options.disableSpeech) {
+    await page.addInitScript(() => {
+      Object.defineProperty(window, "SpeechRecognition", { configurable: true, value: undefined });
+      Object.defineProperty(window, "webkitSpeechRecognition", { configurable: true, value: undefined });
+    });
+  }
+  if (options.trackAudio) {
+    await page.addInitScript(() => {
+      window.__qaAudioTicks = 0;
+      window.AudioContext = class {
+        constructor() {
+          window.__qaAudioTicks += 1;
+          this.currentTime = 0;
+          this.destination = {};
+        }
+
+        createOscillator() {
+          return {
+            connect() {},
+            start() {},
+            stop() {
+              this.onended?.();
+            },
+            frequency: { value: 0 },
+            onended: null,
+          };
+        }
+
+        createGain() {
+          return {
+            connect() {},
+            gain: {
+              setValueAtTime() {},
+              exponentialRampToValueAtTime() {},
+            },
+          };
+        }
+
+        close() {}
+      };
+      window.webkitAudioContext = window.AudioContext;
+    });
+  }
   const boundary = await installNetworkBoundary(page, options);
   await page.goto("/");
   await expect(page.getByTestId("app-shell")).toBeVisible();
@@ -145,12 +188,13 @@ async function expectCleanPage(page) {
 }
 
 test("revised funnel opens with compact brand, one-line Sally composer, and purpose step", async ({ page }) => {
-  await openApp(page);
+  await openApp(page, { disableSpeech: true });
 
   await expect(page.locator(".simple-brand-title", { hasText: "CHOOSE MY RATE" })).toBeVisible();
   await expect(page.getByText("Powered by Home Lenders of America")).toBeVisible();
   await expect(page.getByRole("heading", { name: "See your real mortgage rate options." })).toBeVisible();
   await expect(page.getByPlaceholder("Ask Sally about your mortgage")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Dictate a question" })).toBeDisabled();
   await expect(page.getByTestId("progress-indicator")).toHaveText("1 of 3");
   await expect(page.getByTestId("purpose-step")).toBeVisible();
   await expect(page.getByTestId("comparison-trigger")).toHaveCount(0);
@@ -197,13 +241,14 @@ test("rate dial changes only among real options and updates tradeoff values", as
 
   await expect(page.getByTestId("compact-scenario-summary")).toContainText("Purchase · $450,000 home · 5% down · ZIP 92660");
   await expect(page.getByTestId("selected-rate")).toHaveText("6.500%");
-  await expect(page.getByTestId("selected-payment")).toHaveText("$2,731 / month");
+  await expect(page.getByTestId("selected-payment")).toHaveText("$2,731/mo P&I");
+  await expect(page.getByTestId("rate-tradeoff")).toContainText("Principal & interest");
   await expect(page.getByTestId("selected-points")).toHaveText("Closest to par");
   await expect(page.getByTestId("selected-cash")).toHaveText("$27,500");
 
   await page.getByRole("button", { name: "Next rate" }).click();
   await expect(page.getByTestId("selected-rate")).toHaveText("6.750%");
-  await expect(page.getByTestId("selected-payment")).toHaveText("$2,832 / month");
+  await expect(page.getByTestId("selected-payment")).toHaveText("$2,832/mo P&I");
   await expect(page.getByTestId("selected-points")).toHaveText("0.625% lender credit");
   await expect(page.getByTestId("selected-cash")).toHaveText("$24,000");
 
@@ -211,6 +256,27 @@ test("rate dial changes only among real options and updates tradeoff values", as
   await expect(page.getByTestId("selected-rate")).toHaveText("6.250%");
   await expect(page.getByTestId("selected-points")).toHaveText("0.875% points");
   await expect(page.getByTestId("selected-cash")).toHaveText("$31,000");
+
+  await page.getByTestId("rate-wheel").press("ArrowRight");
+  await expect(page.getByTestId("selected-rate")).toHaveText("6.500%");
+});
+
+test("rate dial sound and speaker controls only react to real selection changes", async ({ page }) => {
+  await openApp(page, { trackAudio: true });
+  await submitPurchase(page);
+
+  await expect(page.getByRole("button", { name: "Turn sound off" })).toBeVisible();
+  expect(await page.evaluate(() => window.__qaAudioTicks)).toBe(0);
+
+  await page.getByRole("button", { name: "Closest to par" }).click();
+  expect(await page.evaluate(() => window.__qaAudioTicks)).toBe(0);
+
+  await page.getByRole("button", { name: "Next rate" }).click();
+  expect(await page.evaluate(() => window.__qaAudioTicks)).toBe(1);
+
+  await page.getByRole("button", { name: "Turn sound off" }).click();
+  await page.getByRole("button", { name: "Previous rate" }).click();
+  expect(await page.evaluate(() => window.__qaAudioTicks)).toBe(1);
 });
 
 test("application CTA and optional comparison stay below selected rate information", async ({ page }) => {
@@ -267,7 +333,9 @@ test("Sally remains compact and text-first with scenario context", async ({ page
   await page.getByLabel("Ask Sally").fill("What should I compare?");
   await page.getByRole("button", { name: "Send" }).click();
 
-  await expect(page.getByTestId("sally-response")).toContainText("monthly payment");
+  await expect(page.getByTestId("sally-response")).toContainText("principal-and-interest payment");
+  await expect(page.getByTestId("purchase-property-step")).toBeVisible();
+  await expect(page.getByTestId("home-price")).toHaveValue("450000");
   await expect(page.getByTestId("sally-card")).not.toContainText(/spoken|autoplay|realtime|voice controls/i);
 });
 
@@ -277,6 +345,7 @@ test("disclosures are compact and expandable", async ({ page }) => {
   await expect(page.getByTestId("disclosure")).toContainText("Important rate information");
   await page.getByText("Important rate information").click();
   await expect(page.getByTestId("disclosure")).toContainText("not a loan approval");
+  await expect(page.getByTestId("disclosure")).toContainText("taxes, homeowners insurance, mortgage insurance, HOA dues");
 });
 
 test("mobile layout keeps one question group and no horizontal overflow", async ({ page }) => {

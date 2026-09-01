@@ -195,6 +195,15 @@ function IconButton({ children, label, onClick, disabled = false }) {
   );
 }
 
+function MicrophoneIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3Z" />
+      <path d="M5 11a1 1 0 1 1 2 0 5 5 0 0 0 10 0 1 1 0 1 1 2 0 7 7 0 0 1-6 6.92V20h3a1 1 0 1 1 0 2H8a1 1 0 1 1 0-2h3v-2.08A7 7 0 0 1 5 11Z" />
+    </svg>
+  );
+}
+
 export default function SimplifiedBorrowerFunnel() {
   const [scenario, setScenario] = useState(INITIAL_SCENARIO);
   const [step, setStep] = useState(0);
@@ -219,6 +228,8 @@ export default function SimplifiedBorrowerFunnel() {
   const previousOption = selectedIndex > 0 ? options[selectedIndex - 1] : null;
   const nextOption = selectedIndex < options.length - 1 ? options[selectedIndex + 1] : null;
   const isResults = pricingState === "ready" && options.length > 0;
+  const canDictate =
+    typeof window !== "undefined" && Boolean(window.SpeechRecognition || window.webkitSpeechRecognition);
 
   const updateScenario = (field, value) => {
     setQuote(null);
@@ -273,6 +284,7 @@ export default function SimplifiedBorrowerFunnel() {
 
   const selectOption = (option) => {
     if (!option) return;
+    if (optionKey(option) === selectedOptionId) return;
     setSelectedOptionId(optionKey(option));
     playTick();
     window.navigator.vibrate?.(12);
@@ -375,7 +387,7 @@ export default function SimplifiedBorrowerFunnel() {
     setSallyThinking(true);
 
     if (!hasSallyApi()) {
-      setSallyResponse("I can help compare monthly payment, upfront cost, and lender credit using the scenario on this page.");
+      setSallyResponse("I can help compare principal-and-interest payment, upfront cost, and lender credit using the scenario on this page.");
       setSallyThinking(false);
       return;
     }
@@ -484,7 +496,7 @@ export default function SimplifiedBorrowerFunnel() {
       </header>
 
       <section className="simple-sally-composer-card" data-testid="sally-card">
-        <span>Need help? Ask Sally</span>
+        <span className="simple-sally-label"><span className="simple-sally-dot" />Need help? Ask Sally</span>
         <div className="simple-sally-composer" data-testid="sally-composer">
           <IconButton label="Add context">+</IconButton>
           <input
@@ -496,7 +508,9 @@ export default function SimplifiedBorrowerFunnel() {
             }}
             placeholder="Ask Sally about your mortgage"
           />
-          <IconButton label="Use microphone" onClick={startDictation}>mic</IconButton>
+          <IconButton label="Dictate a question" onClick={startDictation} disabled={!canDictate}>
+            <MicrophoneIcon />
+          </IconButton>
           <IconButton label="Send" onClick={askSally}>→</IconButton>
         </div>
         {sallyExpanded ? (
@@ -590,7 +604,7 @@ export default function SimplifiedBorrowerFunnel() {
             <div className="simple-dial-center">
               <span>Selected rate</span>
               <strong data-testid="selected-rate">{formatPercent(selectedOption?.rate)}</strong>
-              <p data-testid="selected-payment">{formatCurrency(selectedOption?.paymentPI)} / month</p>
+              <p data-testid="selected-payment">{formatCurrency(selectedOption?.paymentPI)}/mo P&amp;I</p>
             </div>
             <div className="simple-dial-neighbor">
               <span>{nextOption ? formatPercent(nextOption.rate) : "Highest"}</span>
@@ -604,7 +618,7 @@ export default function SimplifiedBorrowerFunnel() {
             <IconButton label={soundOn ? "Turn sound off" : "Turn sound on"} onClick={() => setSoundOn((current) => !current)}>{soundOn ? "🔊" : "🔇"}</IconButton>
           </div>
           <div className="simple-tradeoff" data-testid="rate-tradeoff">
-            <div><span>Monthly payment</span><strong>{formatCurrency(selectedOption?.paymentPI)}</strong></div>
+            <div><span>Principal &amp; interest</span><strong>{formatCurrency(selectedOption?.paymentPI)}</strong></div>
             <div><span>Points or lender credit</span><strong data-testid="selected-points">{formatPoints(selectedOption?.price)}</strong></div>
             <div><span>Estimated cash to close</span><strong data-testid="selected-cash">{formatCurrency(selectedOption?.estimatedCashToClose)}</strong></div>
           </div>
@@ -617,8 +631,8 @@ export default function SimplifiedBorrowerFunnel() {
               <div className={`simple-comparison-result ${comparison.status}`} data-testid="comparison-result">
                 {comparison.status === "ready" ? (
                   <>
-                    <div><span>FHA</span><strong>{formatPercent(comparison.fha?.rate)}</strong><small>{formatCurrency(comparison.fha?.paymentPI)} / month</small></div>
-                    <div><span>Conventional</span><strong>{formatPercent(comparison.conventional?.rate)}</strong><small>{formatCurrency(comparison.conventional?.paymentPI)} / month</small></div>
+                    <div><span>FHA</span><strong>{formatPercent(comparison.fha?.rate)}</strong><small>{formatCurrency(comparison.fha?.paymentPI)}/mo P&amp;I</small></div>
+                    <div><span>Conventional</span><strong>{formatPercent(comparison.conventional?.rate)}</strong><small>{formatCurrency(comparison.conventional?.paymentPI)}/mo P&amp;I</small></div>
                   </>
                 ) : comparison.message}
               </div>
@@ -631,7 +645,8 @@ export default function SimplifiedBorrowerFunnel() {
         <p>
           Displayed pricing is not a loan approval, commitment, or rate lock. Rates, points, lender credits,
           payments, and cash-to-close estimates are subject to change. Principal and interest are shown only when
-          available; taxes, insurance, mortgage insurance, APR, and fees are not presented as complete unless supplied.
+          available; taxes, homeowners insurance, mortgage insurance, HOA dues, APR, fees, and other applicable housing
+          expenses are not included unless specifically supplied.
         </p>
       </details>
     </main>

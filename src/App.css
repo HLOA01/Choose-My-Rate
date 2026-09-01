@@ -1956,6 +1956,11 @@ button.pricing-table-row {
   color: #d1d5db;
 }
 
+.simple-cmr-page.revised .simple-brand-subtitle {
+  color: #f3f4f6;
+  font-size: 16px;
+}
+
 .simple-cmr-page.revised .simple-header-copy h1 {
   color: #ffffff;
   font-size: clamp(30px, 5vw, 54px);
@@ -1980,6 +1985,20 @@ button.pricing-table-row {
 .simple-cmr-page.revised .simple-sally-composer-card > span {
   font-size: 14px;
   font-weight: 650;
+}
+
+.simple-sally-label {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.simple-sally-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: #c1121f;
+  box-shadow: 0 0 14px rgba(193, 18, 31, 0.72);
 }
 
 .simple-cmr-page.revised .simple-sally-composer {
@@ -2009,6 +2028,17 @@ button.pricing-table-row {
   color: #ffffff;
   background: rgba(255, 255, 255, 0.08);
   cursor: pointer;
+}
+
+.simple-cmr-page.revised .simple-icon-button svg {
+  width: 20px;
+  height: 20px;
+  fill: currentColor;
+}
+
+.simple-cmr-page.revised .simple-icon-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
 }
 
 .simple-cmr-page.revised .simple-icon-button:hover,

@@ -141,6 +141,19 @@ async function installNetworkBoundary(page, options = {}) {
 
 async function openApp(page, options = {}) {
   await page.addInitScript(() => window.localStorage.clear());
+  if (options.reducedMotion) {
+    await page.addInitScript(() => {
+      window.matchMedia = (query) => ({
+        matches: query.includes("prefers-reduced-motion"),
+        media: query,
+        addEventListener() {},
+        removeEventListener() {},
+        addListener() {},
+        removeListener() {},
+        dispatchEvent: () => false,
+      });
+    });
+  }
   if (options.disableSpeech) {
     await page.addInitScript(() => {
       Object.defineProperty(window, "SpeechRecognition", { configurable: true, value: undefined });
@@ -209,7 +222,10 @@ async function openApp(page, options = {}) {
             frequencyBinCount: 32,
             fftSize: 64,
             getByteTimeDomainData(values) {
-              values.fill(140);
+              const amplitude = window.__qaAmplitude || 12;
+              for (let index = 0; index < values.length; index += 1) {
+                values[index] = 128 + Math.round(Math.sin(index * 0.9) * amplitude);
+              }
             },
           };
         }
@@ -479,7 +495,19 @@ test("microphone dictation shows waveform and finish/cancel never submits audio"
 
   await page.getByRole("button", { name: "Dictate a question" }).click();
   await expect(page.getByTestId("dictation-state")).toContainText("Listening");
-  await expect(page.getByTestId("dictation-waveform").locator("span")).toHaveCount(5);
+  await expect(page.getByTestId("dictation-waveform").locator("span")).toHaveCount(36);
+  const waveformMetrics = await page.evaluate(() => {
+    const composer = document.querySelector("[data-testid='sally-composer']").getBoundingClientRect();
+    const waveform = document.querySelector("[data-testid='dictation-waveform']").getBoundingClientRect();
+    const bars = [...document.querySelectorAll("[data-testid='dictation-waveform'] span")].map((bar) => bar.getBoundingClientRect().height);
+    return {
+      composerWidth: composer.width,
+      waveformWidth: waveform.width,
+      uniqueHeights: new Set(bars.map((height) => Math.round(height))).size,
+    };
+  });
+  expect(waveformMetrics.waveformWidth).toBeGreaterThan(waveformMetrics.composerWidth * 0.55);
+  expect(waveformMetrics.uniqueHeights).toBeGreaterThan(8);
   await page.evaluate(() => window.__qaActiveRecognition.emitTranscript("What happens if I choose points?"));
   await page.getByRole("button", { name: "Finish" }).click();
 
@@ -494,6 +522,32 @@ test("microphone dictation shows waveform and finish/cancel never submits audio"
   await page.evaluate(() => window.__qaActiveRecognition.emitTranscript("Discard this"));
   await page.getByRole("button", { name: "Cancel" }).click();
   await expect(page.getByLabel("Ask Sally")).toHaveValue("What happens if I choose points?");
+});
+
+test("listening waveform reacts to mocked analyser amplitude", async ({ page }) => {
+  await openApp(page, { mockSpeech: true });
+
+  await page.evaluate(() => {
+    window.__qaAmplitude = 4;
+  });
+  await page.getByRole("button", { name: "Dictate a question" }).click();
+  await expect(page.getByTestId("dictation-waveform").locator("span")).toHaveCount(36);
+  const lowHeights = await page.evaluate(() => [...document.querySelectorAll("[data-testid='dictation-waveform'] span")].map((bar) => Math.round(bar.getBoundingClientRect().height)));
+  await page.evaluate(() => {
+    window.__qaAmplitude = 28;
+  });
+  await page.waitForTimeout(120);
+  const highHeights = await page.evaluate(() => [...document.querySelectorAll("[data-testid='dictation-waveform'] span")].map((bar) => Math.round(bar.getBoundingClientRect().height)));
+  expect(Math.max(...highHeights)).toBeGreaterThan(Math.max(...lowHeights));
+});
+
+test("reduced-motion listening state remains usable", async ({ page }) => {
+  await openApp(page, { mockSpeech: true, reducedMotion: true });
+
+  await page.getByRole("button", { name: "Dictate a question" }).click();
+  await expect(page.getByTestId("dictation-waveform").locator("span")).toHaveCount(36);
+  await expect(page.getByRole("button", { name: "Cancel dictation" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Finish dictation" })).toBeVisible();
 });
 
 test("unsupported speech recognition keeps typed Sally entry available", async ({ page }) => {
@@ -549,11 +603,15 @@ test("Sally conversation viewport scrolls internally without growing the page", 
     return {
       clientHeight: thread.clientHeight,
       scrollHeight: thread.scrollHeight,
+      overflow: thread.dataset.overflow,
+      scrollbarColor: getComputedStyle(thread).scrollbarColor,
       pageGrowth: document.documentElement.scrollHeight - window.__qaInitialPageHeight,
     };
   });
   expect(metrics.clientHeight).toBeLessThanOrEqual(220);
   expect(metrics.scrollHeight).toBeGreaterThan(metrics.clientHeight);
+  expect(metrics.overflow).toBe("true");
+  expect(metrics.scrollbarColor).not.toBe("rgba(0, 0, 0, 0) rgba(0, 0, 0, 0)");
   expect(metrics.pageGrowth).toBeLessThan(40);
 
   await page.evaluate(() => {
@@ -565,6 +623,26 @@ test("Sally conversation viewport scrolls internally without growing the page", 
   await page.getByRole("button", { name: "Send to Sally" }).click();
   const after = await page.evaluate(() => document.querySelector("[data-testid='sally-thread']").scrollTop);
   expect(after).toBe(before);
+});
+
+test("mobile listening waveform spans composer without overflow", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openApp(page, { mockSpeech: true });
+
+  await page.getByRole("button", { name: "Dictate a question" }).click();
+  await expect(page.getByTestId("dictation-waveform").locator("span")).toHaveCount(36);
+  const metrics = await page.evaluate(() => {
+    const composer = document.querySelector("[data-testid='sally-composer']").getBoundingClientRect();
+    const waveform = document.querySelector("[data-testid='dictation-waveform']").getBoundingClientRect();
+    return {
+      clientWidth: document.documentElement.clientWidth,
+      scrollWidth: document.documentElement.scrollWidth,
+      composerWidth: composer.width,
+      waveformWidth: waveform.width,
+    };
+  });
+  expect(metrics.scrollWidth).toBeLessThanOrEqual(metrics.clientWidth);
+  expect(metrics.waveformWidth).toBeGreaterThan(metrics.composerWidth * 0.42);
 });
 
 test("Sally purchase and refinance intents advance the funnel without requesting pricing", async ({ page }) => {

@@ -39,6 +39,12 @@ const INITIAL_SCENARIO = {
 const CLOSING_COST_DISCLOSURE_VERSION = "closing-cost-prelim-v1";
 const COST_DISCLOSURE =
   "Estimated closing costs do not include down payment, prepaid interest, property taxes, homeowners insurance, mortgage insurance, HOA dues, or initial escrow deposits. Final amounts are determined after application and verification.";
+const WAVEFORM_BAR_COUNT = 36;
+const WAVEFORM_FALLBACK_LEVELS = Array.from({ length: WAVEFORM_BAR_COUNT }, (_, index) => {
+  const wave = Math.sin(index * 0.82) * 0.24;
+  const centerLift = 0.34 * (1 - Math.abs(index - (WAVEFORM_BAR_COUNT - 1) / 2) / ((WAVEFORM_BAR_COUNT - 1) / 2));
+  return Math.min(0.92, Math.max(0.2, 0.38 + wave + centerLift));
+});
 
 function cleanNumber(value) {
   return String(value || "").replace(/[^\d.]/g, "");
@@ -364,9 +370,10 @@ export default function SimplifiedBorrowerFunnel() {
   const [dictationState, setDictationState] = useState("idle");
   const [dictationTranscript, setDictationTranscript] = useState("");
   const [dictationMessage, setDictationMessage] = useState("");
-  const [waveformLevels, setWaveformLevels] = useState([0.28, 0.54, 0.36, 0.7, 0.44]);
+  const [waveformLevels, setWaveformLevels] = useState(WAVEFORM_FALLBACK_LEVELS);
   const [playingMessageId, setPlayingMessageId] = useState("");
   const [newMessageNotice, setNewMessageNotice] = useState(false);
+  const [threadHasOverflow, setThreadHasOverflow] = useState(false);
   const [soundOn, setSoundOn] = useState(true);
   const [handoffMessage, setHandoffMessage] = useState("");
   const [pendingFocus, setPendingFocus] = useState("");
@@ -432,6 +439,8 @@ export default function SimplifiedBorrowerFunnel() {
   useEffect(() => {
     const viewport = messagesRef.current;
     if (!viewport || !sallyMessages.length) return;
+    const hasOverflow = viewport.scrollHeight > viewport.clientHeight + 2;
+    setThreadHasOverflow(hasOverflow);
     if (shouldAutoScrollRef.current) {
       viewport.scrollTop = viewport.scrollHeight;
       setNewMessageNotice(false);
@@ -673,15 +682,21 @@ export default function SimplifiedBorrowerFunnel() {
     const analyser = context.createAnalyser();
     const source = context.createMediaStreamSource(stream);
     const data = new Uint8Array(analyser.frequencyBinCount);
-    analyser.fftSize = 64;
+    analyser.fftSize = 128;
     source.connect(analyser);
     audioContextRef.current = context;
 
     const draw = () => {
       analyser.getByteTimeDomainData(data);
-      const average = data.reduce((sum, value) => sum + Math.abs(value - 128), 0) / data.length;
-      const level = Math.min(Math.max(average / 32, 0.2), 1);
-      setWaveformLevels([0.34, 0.58, 0.42, 0.74, 0.5].map((seed, index) => Math.min(1, Math.max(0.18, seed * level + index * 0.035))));
+      const bucketSize = Math.max(1, Math.floor(data.length / WAVEFORM_BAR_COUNT));
+      const levels = Array.from({ length: WAVEFORM_BAR_COUNT }, (_, index) => {
+        const start = index * bucketSize;
+        const bucket = data.slice(start, start + bucketSize);
+        const average = bucket.reduce((sum, value) => sum + Math.abs(value - 128), 0) / Math.max(bucket.length, 1);
+        const shaped = average / 36 + WAVEFORM_FALLBACK_LEVELS[index] * 0.32;
+        return Math.min(1, Math.max(0.16, shaped));
+      });
+      setWaveformLevels(levels);
       animationFrameRef.current = window.requestAnimationFrame(draw);
     };
     draw();
@@ -698,6 +713,7 @@ export default function SimplifiedBorrowerFunnel() {
     setDictationState("listening");
     setDictationTranscript("");
     setDictationMessage("");
+    setWaveformLevels(WAVEFORM_FALLBACK_LEVELS);
 
     try {
       if (window.navigator.mediaDevices?.getUserMedia) {
@@ -706,7 +722,7 @@ export default function SimplifiedBorrowerFunnel() {
         startWaveform(stream);
       }
     } catch {
-      setWaveformLevels([0.3, 0.65, 0.4, 0.8, 0.48]);
+      setWaveformLevels(WAVEFORM_FALLBACK_LEVELS);
     }
 
     const recognition = new Recognition();
@@ -863,8 +879,8 @@ export default function SimplifiedBorrowerFunnel() {
                 ))}
               </div>
               <span>{dictationState === "listening" ? "Listening..." : dictationTranscript || "Ready to finish dictation"}</span>
-              <button type="button" onClick={cancelDictation}>Cancel</button>
-              <button type="button" onClick={finishDictation}>Finish</button>
+              <button type="button" aria-label="Cancel dictation" onClick={cancelDictation}>Cancel</button>
+              <button type="button" aria-label="Finish dictation" onClick={finishDictation}>Finish</button>
             </div>
           ) : (
             <input
@@ -891,6 +907,7 @@ export default function SimplifiedBorrowerFunnel() {
           <div
             className="simple-sally-thread"
             data-testid="sally-thread"
+            data-overflow={threadHasOverflow ? "true" : "false"}
             ref={messagesRef}
             tabIndex={0}
             role="log"

@@ -1,5 +1,7 @@
 import { expect, test } from "@playwright/test";
 
+test.skip(true, "Superseded by funnel.spec.js for the revised progressive borrower funnel.");
+
 const badPageText = /NaN|Infinity|undefined/;
 const forbiddenSallyText = /\b(?:approved|approval|rate lock|locked in|guaranteed|autoplay|realtime|voice control)\b/i;
 const restoreKey = "chooseMyRate.simpleScenario.v1";

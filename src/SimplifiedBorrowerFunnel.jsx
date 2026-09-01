@@ -1,0 +1,639 @@
+import React, { useMemo, useRef, useState } from "react";
+import "./App.css";
+import { askSallyApi, hasSallyApi } from "./sallyApi";
+import { hasPricingApi, quotePricing } from "./pricingApi";
+
+const APPLICATION_URL =
+  import.meta.env.VITE_APPLICATION_URL ||
+  import.meta.env.VITE_APPLY_URL ||
+  import.meta.env.VITE_LOAN_APPLICATION_URL ||
+  "";
+
+const CREDIT_RANGES = {
+  "760+": 780,
+  "740-759": 750,
+  "720-739": 730,
+  "700-719": 710,
+  "680-699": 690,
+  "660-679": 670,
+  "640-659": 650,
+};
+
+const INITIAL_SCENARIO = {
+  borrowerPath: "purchase",
+  homePrice: "",
+  downPayment: "",
+  propertyValue: "",
+  currentMortgageBalance: "",
+  refinanceGoal: "lower_payment",
+  currentInterestRate: "",
+  requestedCashOut: "",
+  propertyType: "single_family",
+  firstTimeHomebuyer: "no",
+  occupancy: "primary",
+  creditRange: "740-759",
+  zipCode: "",
+  annualIncome: "",
+};
+
+function cleanNumber(value) {
+  return String(value || "").replace(/[^\d.]/g, "");
+}
+
+function toNumber(value) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : 0;
+}
+
+function formatCurrency(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) return "-";
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  }).format(numeric);
+}
+
+function formatPercent(value, digits = 3) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return "-";
+  return `${numeric.toFixed(digits)}%`;
+}
+
+function formatPoints(value) {
+  const numeric = Number(value || 0);
+  if (!Number.isFinite(numeric)) return "-";
+  if (numeric < 0) return `${formatPercent(Math.abs(numeric))} lender credit`;
+  if (numeric > 0) return `${formatPercent(numeric)} points`;
+  return "Closest to par";
+}
+
+function normalizeLoanType(value) {
+  const normalized = String(value || "conventional").toLowerCase();
+  if (["fha", "va", "usda", "jumbo", "dscr"].includes(normalized)) return normalized;
+  return "conventional";
+}
+
+function getLoanAmount(scenario) {
+  if (scenario.borrowerPath === "purchase") {
+    return Math.max(toNumber(scenario.homePrice) - toNumber(scenario.downPayment), 0);
+  }
+  if (scenario.refinanceGoal === "cash_out") {
+    return Math.max(toNumber(scenario.currentMortgageBalance) + toNumber(scenario.requestedCashOut), 0);
+  }
+  return toNumber(scenario.currentMortgageBalance);
+}
+
+function buildPricingPayload(scenario, loanTypePreference = "conventional") {
+  const purchasePrice =
+    scenario.borrowerPath === "purchase" ? toNumber(scenario.homePrice) : toNumber(scenario.propertyValue);
+  const loanAmount = getLoanAmount(scenario);
+  const creditScore = CREDIT_RANGES[scenario.creditRange] || 740;
+
+  return {
+    purchasePrice,
+    loanAmount,
+    creditScore,
+    occupancy: scenario.occupancy || "primary",
+    loanPurpose:
+      scenario.borrowerPath === "purchase"
+        ? "purchase"
+        : scenario.refinanceGoal === "cash_out"
+          ? "cash_out"
+          : "refinance",
+    loanTypePreference: normalizeLoanType(loanTypePreference),
+    propertyType: scenario.propertyType || "single_family",
+    zipCode: scenario.zipCode || "",
+    downPayment: scenario.borrowerPath === "purchase" ? toNumber(scenario.downPayment) || null : null,
+    ltv: purchasePrice && loanAmount ? Number(((loanAmount / purchasePrice) * 100).toFixed(3)) : null,
+    language: "en",
+  };
+}
+
+function getValidationErrors(scenario) {
+  const errors = [];
+  if (scenario.borrowerPath === "purchase") {
+    if (!toNumber(scenario.homePrice)) errors.push("Home price is required.");
+    if (!toNumber(scenario.downPayment)) errors.push("Down payment is required.");
+  } else {
+    if (!toNumber(scenario.propertyValue)) errors.push("Estimated property value is required.");
+    if (!toNumber(scenario.currentMortgageBalance)) errors.push("Current mortgage balance is required.");
+    if (!toNumber(scenario.currentInterestRate)) errors.push("Current interest rate is required.");
+    if (scenario.refinanceGoal === "cash_out" && !toNumber(scenario.requestedCashOut)) {
+      errors.push("Requested cash-out amount is required.");
+    }
+  }
+  if (!scenario.propertyType) errors.push("Property type is required.");
+  if (!scenario.occupancy) errors.push("Occupancy is required.");
+  if (!scenario.creditRange) errors.push("Credit range is required.");
+  if (!/^\d{5}$/.test(String(scenario.zipCode || ""))) errors.push("Enter a valid 5-digit ZIP code.");
+  if (!toNumber(scenario.annualIncome)) errors.push("Estimated gross annual household income is required.");
+  return errors;
+}
+
+function optionKey(option) {
+  return option?.optionId || `${option?.rate}-${option?.price}-${option?.paymentPI}-${option?.estimatedCashToClose}`;
+}
+
+function pickParOption(options) {
+  return [...options].sort((left, right) => {
+    const leftDistance = Math.abs(Number(left?.price || 0));
+    const rightDistance = Math.abs(Number(right?.price || 0));
+    return leftDistance - rightDistance || Number(left?.rate || 0) - Number(right?.rate || 0);
+  })[0] || null;
+}
+
+function formatRefinanceGoal(value) {
+  const labels = {
+    lower_payment: "Lower payment",
+    shorter_term: "Shorter term",
+    cash_out: "Cash out",
+    debt_consolidation: "Debt consolidation",
+  };
+  return labels[value] || "Refinance";
+}
+
+function getDownPaymentPercent(scenario) {
+  const homePrice = toNumber(scenario.homePrice);
+  const downPayment = toNumber(scenario.downPayment);
+  if (!homePrice || !downPayment) return "";
+  return `${Math.round((downPayment / homePrice) * 1000) / 10}% down`;
+}
+
+function getScenarioSummary(scenario) {
+  if (scenario.borrowerPath === "purchase") {
+    return [
+      "Purchase",
+      `${formatCurrency(scenario.homePrice)} home`,
+      getDownPaymentPercent(scenario),
+      scenario.zipCode ? `ZIP ${scenario.zipCode}` : "",
+    ].filter(Boolean).join(" · ");
+  }
+  return [
+    formatRefinanceGoal(scenario.refinanceGoal),
+    `${formatCurrency(scenario.propertyValue)} value`,
+    `${formatCurrency(getLoanAmount(scenario))} loan`,
+    scenario.zipCode ? `ZIP ${scenario.zipCode}` : "",
+  ].filter(Boolean).join(" · ");
+}
+
+function Field({ children, label }) {
+  return (
+    <label className="simple-field">
+      <span>{label}</span>
+      {children}
+    </label>
+  );
+}
+
+function IconButton({ children, label, onClick, disabled = false }) {
+  return (
+    <button type="button" className="simple-icon-button" aria-label={label} onClick={onClick} disabled={disabled}>
+      {children}
+    </button>
+  );
+}
+
+export default function SimplifiedBorrowerFunnel() {
+  const [scenario, setScenario] = useState(INITIAL_SCENARIO);
+  const [step, setStep] = useState(0);
+  const [quote, setQuote] = useState(null);
+  const [selectedOptionId, setSelectedOptionId] = useState("");
+  const [pricingState, setPricingState] = useState("idle");
+  const [pricingMessage, setPricingMessage] = useState("");
+  const [comparison, setComparison] = useState(null);
+  const [sallyInput, setSallyInput] = useState("");
+  const [sallyResponse, setSallyResponse] = useState("");
+  const [sallyExpanded, setSallyExpanded] = useState(false);
+  const [sallyThinking, setSallyThinking] = useState(false);
+  const [soundOn, setSoundOn] = useState(true);
+  const [handoffMessage, setHandoffMessage] = useState("");
+  const touchStartRef = useRef(null);
+  const abortRef = useRef(null);
+
+  const pricingPayload = useMemo(() => buildPricingPayload(scenario), [scenario]);
+  const options = Array.isArray(quote?.options) ? quote.options : [];
+  const selectedOption = options.find((option) => optionKey(option) === selectedOptionId) || options[0] || null;
+  const selectedIndex = Math.max(0, options.findIndex((option) => optionKey(option) === optionKey(selectedOption)));
+  const previousOption = selectedIndex > 0 ? options[selectedIndex - 1] : null;
+  const nextOption = selectedIndex < options.length - 1 ? options[selectedIndex + 1] : null;
+  const isResults = pricingState === "ready" && options.length > 0;
+
+  const updateScenario = (field, value) => {
+    setQuote(null);
+    setComparison(null);
+    setPricingState("idle");
+    setPricingMessage("");
+    setHandoffMessage("");
+    setScenario((current) => ({
+      ...current,
+      [field]: [
+        "homePrice",
+        "downPayment",
+        "propertyValue",
+        "currentMortgageBalance",
+        "currentInterestRate",
+        "requestedCashOut",
+        "zipCode",
+        "annualIncome",
+      ].includes(field)
+        ? cleanNumber(value)
+        : value,
+    }));
+  };
+
+  const choosePath = (borrowerPath) => {
+    updateScenario("borrowerPath", borrowerPath);
+    setStep(1);
+  };
+
+  const playTick = () => {
+    if (!soundOn) return;
+    try {
+      const AudioContext = window.AudioContext || window.webkitAudioContext;
+      if (AudioContext) {
+        const context = new AudioContext();
+        const oscillator = context.createOscillator();
+        const gain = context.createGain();
+        oscillator.frequency.value = 700;
+        gain.gain.setValueAtTime(0.0001, context.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.025, context.currentTime + 0.01);
+        gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.055);
+        oscillator.connect(gain);
+        gain.connect(context.destination);
+        oscillator.start();
+        oscillator.stop(context.currentTime + 0.065);
+        oscillator.onended = () => context.close();
+      }
+    } catch {
+      // Sound is optional.
+    }
+  };
+
+  const selectOption = (option) => {
+    if (!option) return;
+    setSelectedOptionId(optionKey(option));
+    playTick();
+    window.navigator.vibrate?.(12);
+  };
+
+  const moveRate = (direction) => {
+    const nextIndex = Math.min(Math.max(selectedIndex + direction, 0), options.length - 1);
+    selectOption(options[nextIndex]);
+  };
+
+  const submitPricing = async () => {
+    const errors = getValidationErrors(scenario);
+    if (errors.length) {
+      setPricingState("validation");
+      setPricingMessage(errors[0]);
+      setQuote(null);
+      return;
+    }
+    if (!hasPricingApi()) {
+      setPricingState("error");
+      setPricingMessage("Live rates are not configured yet. No rates are shown until the connection is ready.");
+      setQuote(null);
+      return;
+    }
+
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    setPricingState("loading");
+    setPricingMessage("Looking up live rates...");
+    setQuote(null);
+
+    try {
+      const response = await quotePricing(pricingPayload, { signal: controller.signal });
+      const responseOptions = Array.isArray(response?.options) ? response.options : [];
+      setQuote(response);
+      if (!responseOptions.length) {
+        setPricingState("empty");
+        setPricingMessage(response?.message || "No live rate options are available for this scenario.");
+        setSelectedOptionId("");
+        return;
+      }
+      const parOption = pickParOption(responseOptions);
+      setSelectedOptionId(optionKey(parOption));
+      setPricingState("ready");
+      setPricingMessage("Your live rate options are ready.");
+    } catch (error) {
+      if (error.name === "AbortError") return;
+      setPricingState("error");
+      setPricingMessage("Live rates are unavailable right now. No rates are shown until live options are available.");
+      setQuote(null);
+      setSelectedOptionId("");
+    }
+  };
+
+  const compareFhaConventional = async () => {
+    const errors = getValidationErrors({ ...scenario, borrowerPath: "purchase" });
+    if (errors.length) {
+      setComparison({ status: "validation", message: errors[0] });
+      return;
+    }
+    if (!hasPricingApi()) {
+      setComparison({ status: "error", message: "Live rates are not configured yet, so this comparison cannot be shown." });
+      return;
+    }
+
+    setComparison({ status: "loading", message: "Comparing live options..." });
+    try {
+      const [fhaQuote, conventionalQuote] = await Promise.all([
+        quotePricing(buildPricingPayload({ ...scenario, borrowerPath: "purchase" }, "fha")),
+        quotePricing(buildPricingPayload({ ...scenario, borrowerPath: "purchase" }, "conventional")),
+      ]);
+      setComparison({
+        status: "ready",
+        fha: pickParOption(fhaQuote?.options || []),
+        conventional: pickParOption(conventionalQuote?.options || []),
+      });
+    } catch {
+      setComparison({ status: "error", message: "The comparison is unavailable right now. No rates are estimated or filled in." });
+    }
+  };
+
+  const handleApplication = () => {
+    if (!selectedOption) {
+      setHandoffMessage("Choose a rate option before continuing.");
+      return;
+    }
+    if (!APPLICATION_URL) {
+      setHandoffMessage("Application handoff is not configured yet. Your selected rate stays here.");
+      return;
+    }
+    window.location.assign(APPLICATION_URL);
+  };
+
+  const askSally = async () => {
+    const userText = sallyInput.trim();
+    if (!userText || sallyThinking) return;
+    setSallyInput("");
+    setSallyExpanded(true);
+    setSallyThinking(true);
+
+    if (!hasSallyApi()) {
+      setSallyResponse("I can help compare monthly payment, upfront cost, and lender credit using the scenario on this page.");
+      setSallyThinking(false);
+      return;
+    }
+
+    try {
+      const response = await askSallyApi({
+        userMessage: userText,
+        currentScenario: { ...scenario, pricingPayload, selectedRate: selectedOption || null },
+        conversationHistory: [{ role: "user", content: userText }],
+        pricingOptions: options,
+        localResult: null,
+      });
+      setSallyResponse(response.replyText || "I can help explain the option you selected.");
+    } catch {
+      setSallyResponse("Sally is temporarily unavailable. Your rate options and application step remain available.");
+    } finally {
+      setSallyThinking(false);
+    }
+  };
+
+  const startDictation = () => {
+    const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!Recognition) return;
+    const recognition = new Recognition();
+    recognition.lang = "en-US";
+    recognition.interimResults = false;
+    recognition.onresult = (event) => {
+      const transcript = event.results?.[0]?.[0]?.transcript || "";
+      setSallyInput(transcript);
+    };
+    recognition.start();
+  };
+
+  const propertyGroup = scenario.borrowerPath === "purchase" ? (
+    <>
+      <Field label="Home price"><input data-testid="home-price" value={scenario.homePrice} onChange={(event) => updateScenario("homePrice", event.target.value)} /></Field>
+      <Field label="Down payment"><input data-testid="down-payment" value={scenario.downPayment} onChange={(event) => updateScenario("downPayment", event.target.value)} /></Field>
+      <Field label="ZIP code"><input data-testid="zip-code" value={scenario.zipCode} maxLength={5} onChange={(event) => updateScenario("zipCode", event.target.value)} /></Field>
+      <Field label="Property type">
+        <select data-testid="property-type" value={scenario.propertyType} onChange={(event) => updateScenario("propertyType", event.target.value)}>
+          <option value="single_family">Single family</option>
+          <option value="condo">Condo</option>
+          <option value="townhome">Townhome</option>
+          <option value="multi_unit">2-4 unit</option>
+        </select>
+      </Field>
+    </>
+  ) : (
+    <>
+      <Field label="Estimated property value"><input data-testid="property-value" value={scenario.propertyValue} onChange={(event) => updateScenario("propertyValue", event.target.value)} /></Field>
+      <Field label="Current mortgage balance"><input data-testid="current-balance" value={scenario.currentMortgageBalance} onChange={(event) => updateScenario("currentMortgageBalance", event.target.value)} /></Field>
+      <Field label="Refinance goal">
+        <select data-testid="refinance-goal" value={scenario.refinanceGoal} onChange={(event) => updateScenario("refinanceGoal", event.target.value)}>
+          <option value="lower_payment">Lower payment</option>
+          <option value="shorter_term">Shorter term</option>
+          <option value="cash_out">Cash out</option>
+          <option value="debt_consolidation">Debt consolidation</option>
+        </select>
+      </Field>
+      <Field label="Current interest rate"><input data-testid="current-rate" value={scenario.currentInterestRate} onChange={(event) => updateScenario("currentInterestRate", event.target.value)} /></Field>
+      {scenario.refinanceGoal === "cash_out" ? (
+        <Field label="Requested cash-out amount"><input data-testid="cash-out-amount" value={scenario.requestedCashOut} onChange={(event) => updateScenario("requestedCashOut", event.target.value)} /></Field>
+      ) : null}
+      <Field label="ZIP code"><input data-testid="zip-code" value={scenario.zipCode} maxLength={5} onChange={(event) => updateScenario("zipCode", event.target.value)} /></Field>
+    </>
+  );
+
+  const borrowerBasics = (
+    <>
+      <Field label="Credit range">
+        <select data-testid="credit-range" value={scenario.creditRange} onChange={(event) => updateScenario("creditRange", event.target.value)}>
+          {Object.keys(CREDIT_RANGES).map((range) => <option key={range} value={range}>{range}</option>)}
+        </select>
+      </Field>
+      <Field label="Occupancy / property use">
+        <select data-testid="occupancy" value={scenario.occupancy} onChange={(event) => updateScenario("occupancy", event.target.value)}>
+          <option value="primary">Primary residence</option>
+          <option value="second_home">Second home</option>
+          <option value="investment">Investment property</option>
+        </select>
+      </Field>
+      {scenario.borrowerPath === "purchase" ? (
+        <Field label="First-time homebuyer">
+          <select data-testid="first-time-homebuyer" value={scenario.firstTimeHomebuyer} onChange={(event) => updateScenario("firstTimeHomebuyer", event.target.value)}>
+            <option value="yes">Yes</option>
+            <option value="no">No</option>
+            <option value="not_sure">Not sure</option>
+          </select>
+        </Field>
+      ) : null}
+      <Field label="Estimated gross annual household income"><input data-testid="annual-income" value={scenario.annualIncome} onChange={(event) => updateScenario("annualIncome", event.target.value)} /></Field>
+    </>
+  );
+
+  return (
+    <main className="simple-cmr-page revised" data-testid="app-shell">
+      <header className="simple-header" data-testid="header-composer">
+        <div className="simple-brand-block">
+          <div className="simple-brand-title">CHOOSE MY RATE</div>
+          <p className="simple-brand-subtitle">Powered by Home Lenders of America</p>
+        </div>
+        <div className="simple-header-copy">
+          <h1>See your real mortgage rate options.</h1>
+          <p>Answer a few questions, choose the option that works for you, and continue to your application.</p>
+        </div>
+      </header>
+
+      <section className="simple-sally-composer-card" data-testid="sally-card">
+        <span>Need help? Ask Sally</span>
+        <div className="simple-sally-composer" data-testid="sally-composer">
+          <IconButton label="Add context">+</IconButton>
+          <input
+            aria-label="Ask Sally"
+            value={sallyInput}
+            onChange={(event) => setSallyInput(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") askSally();
+            }}
+            placeholder="Ask Sally about your mortgage"
+          />
+          <IconButton label="Use microphone" onClick={startDictation}>mic</IconButton>
+          <IconButton label="Send" onClick={askSally}>→</IconButton>
+        </div>
+        {sallyExpanded ? (
+          <details className="simple-sally-response" open data-testid="sally-response">
+            <summary>Sally response</summary>
+            <p>{sallyThinking ? "Sally is thinking..." : sallyResponse}</p>
+          </details>
+        ) : null}
+      </section>
+
+      {!isResults ? (
+        <section className="simple-funnel" data-testid="intake-flow">
+          <div className="simple-progress" data-testid="progress-indicator">{step + 1} of 3</div>
+
+          {step === 0 ? (
+            <section data-testid="purpose-step">
+              <h2>What would you like to do?</h2>
+              <div className="simple-purpose-grid" data-testid="path-toggle">
+                <button type="button" className={scenario.borrowerPath === "purchase" ? "active" : ""} onClick={() => choosePath("purchase")}>Purchase</button>
+                <button type="button" className={scenario.borrowerPath === "refinance" ? "active" : ""} onClick={() => choosePath("refinance")}>Refinance</button>
+              </div>
+            </section>
+          ) : null}
+
+          {step === 1 ? (
+            <section data-testid={`${scenario.borrowerPath}-property-step`}>
+              <h2>{scenario.borrowerPath === "purchase" ? "Tell us about the home." : "Tell us about your current loan."}</h2>
+              <div className="simple-form-grid" data-testid={`${scenario.borrowerPath}-form`}>{propertyGroup}</div>
+            </section>
+          ) : null}
+
+          {step === 2 ? (
+            <section data-testid="borrower-basics-step">
+              <h2>A few borrower basics.</h2>
+              <div className="simple-form-grid">{borrowerBasics}</div>
+              <div className="simple-submit-summary" data-testid="scenario-summary">
+                <span>Your scenario</span>
+                <strong>{getScenarioSummary(scenario) || "Complete your details to see rates."}</strong>
+              </div>
+              {pricingState === "validation" ? <div className="simple-validation" data-testid="validation-message">{pricingMessage}</div> : null}
+            </section>
+          ) : null}
+
+          {pricingState === "loading" ? (
+            <div className="simple-loading-card" data-testid="loading-state">
+              <span>{pricingMessage}</span>
+              <div className="simple-loading-bar" />
+            </div>
+          ) : null}
+          {pricingState === "empty" ? <div className="simple-empty" data-testid="empty-results">{pricingMessage}</div> : null}
+          {pricingState === "error" ? <div className="simple-error" data-testid="pricing-error">{pricingMessage}</div> : null}
+
+          <div className="simple-flow-actions">
+            {step > 0 ? <button type="button" className="simple-secondary-button" onClick={() => setStep((current) => current - 1)}>Back</button> : null}
+            {step < 2 ? (
+              <button type="button" className="simple-primary-button" onClick={() => setStep((current) => current + 1)}>Continue</button>
+            ) : (
+              <button type="button" className="simple-primary-button full" data-testid="submit-scenario" onClick={submitPricing}>Show My Live Rates</button>
+            )}
+          </div>
+        </section>
+      ) : (
+        <section className="simple-results" data-testid="results-screen">
+          <div className="simple-results-summary">
+            <span data-testid="compact-scenario-summary">{getScenarioSummary(scenario)}</span>
+            <button type="button" onClick={() => setPricingState("idle")}>Edit details</button>
+          </div>
+          <section
+            className="simple-rate-dial"
+            data-testid="rate-wheel"
+            tabIndex={0}
+            onKeyDown={(event) => {
+              if (event.key === "ArrowLeft") moveRate(-1);
+              if (event.key === "ArrowRight") moveRate(1);
+            }}
+            onTouchStart={(event) => {
+              touchStartRef.current = event.touches[0]?.clientX || null;
+            }}
+            onTouchEnd={(event) => {
+              const start = touchStartRef.current;
+              const end = event.changedTouches[0]?.clientX;
+              touchStartRef.current = null;
+              if (start == null || end == null || Math.abs(start - end) < 28) return;
+              moveRate(start > end ? 1 : -1);
+            }}
+          >
+            <div className="simple-dial-neighbor">
+              <button type="button" onClick={() => moveRate(-1)} disabled={!previousOption} aria-label="Previous rate">‹</button>
+              <span>{previousOption ? formatPercent(previousOption.rate) : "Lowest"}</span>
+            </div>
+            <div className="simple-dial-center">
+              <span>Selected rate</span>
+              <strong data-testid="selected-rate">{formatPercent(selectedOption?.rate)}</strong>
+              <p data-testid="selected-payment">{formatCurrency(selectedOption?.paymentPI)} / month</p>
+            </div>
+            <div className="simple-dial-neighbor">
+              <span>{nextOption ? formatPercent(nextOption.rate) : "Highest"}</span>
+              <button type="button" onClick={() => moveRate(1)} disabled={!nextOption} aria-label="Next rate">›</button>
+            </div>
+          </section>
+          <div className="simple-dial-controls">
+            <button type="button" onClick={() => selectOption(options[0])}>Lowest rate</button>
+            <button type="button" onClick={() => selectOption(pickParOption(options))}>Closest to par</button>
+            <button type="button" onClick={() => selectOption(options[options.length - 1])}>Most credit</button>
+            <IconButton label={soundOn ? "Turn sound off" : "Turn sound on"} onClick={() => setSoundOn((current) => !current)}>{soundOn ? "🔊" : "🔇"}</IconButton>
+          </div>
+          <div className="simple-tradeoff" data-testid="rate-tradeoff">
+            <div><span>Monthly payment</span><strong>{formatCurrency(selectedOption?.paymentPI)}</strong></div>
+            <div><span>Points or lender credit</span><strong data-testid="selected-points">{formatPoints(selectedOption?.price)}</strong></div>
+            <div><span>Estimated cash to close</span><strong data-testid="selected-cash">{formatCurrency(selectedOption?.estimatedCashToClose)}</strong></div>
+          </div>
+          <p className="simple-rate-note">Lower rates may cost more upfront. Higher rates may provide lender credit.</p>
+          <button type="button" className="simple-primary-button application" data-testid="application-cta" onClick={handleApplication}>Continue to Application</button>
+          {handoffMessage ? <div className="simple-safe-message" data-testid="handoff-message">{handoffMessage}</div> : null}
+          <div className="simple-compare-area">
+            <button type="button" className="simple-link-button" data-testid="comparison-trigger" onClick={compareFhaConventional}>Compare FHA and Conventional</button>
+            {comparison ? (
+              <div className={`simple-comparison-result ${comparison.status}`} data-testid="comparison-result">
+                {comparison.status === "ready" ? (
+                  <>
+                    <div><span>FHA</span><strong>{formatPercent(comparison.fha?.rate)}</strong><small>{formatCurrency(comparison.fha?.paymentPI)} / month</small></div>
+                    <div><span>Conventional</span><strong>{formatPercent(comparison.conventional?.rate)}</strong><small>{formatCurrency(comparison.conventional?.paymentPI)} / month</small></div>
+                  </>
+                ) : comparison.message}
+              </div>
+            ) : null}
+          </div>
+        </section>
+      )}
+      <details className="simple-disclosure" data-testid="disclosure">
+        <summary>Important rate information</summary>
+        <p>
+          Displayed pricing is not a loan approval, commitment, or rate lock. Rates, points, lender credits,
+          payments, and cash-to-close estimates are subject to change. Principal and interest are shown only when
+          available; taxes, insurance, mortgage insurance, APR, and fees are not presented as complete unless supplied.
+        </p>
+      </details>
+    </main>
+  );
+}

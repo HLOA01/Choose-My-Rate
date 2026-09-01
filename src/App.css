@@ -1889,3 +1889,614 @@ button.pricing-table-row {
     flex-direction: column;
   }
 }
+
+.simple-cmr-page.revised {
+  min-height: 100vh;
+  padding: 32px 20px 48px;
+  overflow-x: hidden;
+  color: #ffffff;
+  font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background:
+    radial-gradient(circle at 50% -15%, rgba(244, 197, 66, 0.13), transparent 30%),
+    linear-gradient(180deg, #05070f 0%, #09101f 55%, #05070f 100%);
+}
+
+.simple-cmr-page.revised h1,
+.simple-cmr-page.revised h2,
+.simple-cmr-page.revised h3,
+.simple-cmr-page.revised p {
+  margin: 0;
+  letter-spacing: 0;
+}
+
+.simple-cmr-page.revised button,
+.simple-cmr-page.revised input,
+.simple-cmr-page.revised select {
+  font: inherit;
+}
+
+.simple-header,
+.simple-sally-composer-card,
+.simple-funnel,
+.simple-results,
+.simple-cmr-page.revised .simple-disclosure {
+  width: min(800px, 100%);
+  margin-inline: auto;
+}
+
+.simple-header {
+  display: grid;
+  gap: 16px;
+  text-align: center;
+}
+
+.simple-brand-block {
+  display: grid;
+  gap: 3px;
+}
+
+.simple-cmr-page.revised .simple-brand-title {
+  color: #f4c542;
+  font-size: clamp(30px, 5vw, 48px);
+  line-height: 0.95;
+  font-weight: 900;
+  letter-spacing: 0;
+}
+
+.simple-cmr-page.revised .simple-brand-subtitle,
+.simple-cmr-page.revised .simple-header-copy p,
+.simple-cmr-page.revised .simple-rate-note,
+.simple-cmr-page.revised .simple-disclosure p,
+.simple-cmr-page.revised .simple-submit-summary span,
+.simple-cmr-page.revised .simple-results-summary span,
+.simple-cmr-page.revised .simple-tradeoff span,
+.simple-cmr-page.revised .simple-dial-center span,
+.simple-cmr-page.revised .simple-dial-neighbor span,
+.simple-cmr-page.revised .simple-sally-composer-card > span {
+  color: #d1d5db;
+}
+
+.simple-cmr-page.revised .simple-header-copy h1 {
+  color: #ffffff;
+  font-size: clamp(30px, 5vw, 54px);
+  line-height: 1;
+  font-weight: 850;
+}
+
+.simple-cmr-page.revised .simple-header-copy p {
+  max-width: 650px;
+  margin: 10px auto 0;
+  font-size: 18px;
+  line-height: 1.45;
+  font-weight: 400;
+}
+
+.simple-sally-composer-card {
+  display: grid;
+  gap: 8px;
+  margin-top: 22px;
+}
+
+.simple-cmr-page.revised .simple-sally-composer-card > span {
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.simple-cmr-page.revised .simple-sally-composer {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) 50px 50px;
+  gap: 8px;
+  min-height: 58px;
+  padding: 7px;
+  align-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  border-radius: 999px;
+  background: rgba(11, 17, 31, 0.92);
+  box-shadow: 0 18px 55px rgba(0, 0, 0, 0.25);
+}
+
+.simple-cmr-page.revised .simple-icon-button,
+.simple-cmr-page.revised .simple-sally-composer input {
+  min-height: 44px;
+}
+
+.simple-cmr-page.revised .simple-icon-button {
+  display: inline-grid;
+  place-items: center;
+  min-width: 44px;
+  border: 0;
+  border-radius: 999px;
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.08);
+  cursor: pointer;
+}
+
+.simple-cmr-page.revised .simple-icon-button:hover,
+.simple-cmr-page.revised .simple-icon-button:focus-visible {
+  outline: 2px solid rgba(244, 197, 66, 0.55);
+}
+
+.simple-cmr-page.revised .simple-sally-composer input {
+  width: 100%;
+  border: 0;
+  padding: 0 4px;
+  color: #ffffff;
+  background: transparent;
+}
+
+.simple-cmr-page.revised .simple-sally-composer input::placeholder {
+  color: #9ca3af;
+}
+
+.simple-cmr-page.revised .simple-sally-response {
+  padding: 10px 14px;
+  border: 0;
+  border-radius: 12px;
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.simple-cmr-page.revised .simple-sally-response summary {
+  cursor: pointer;
+  color: #f4c542;
+  font-weight: 700;
+}
+
+.simple-cmr-page.revised .simple-sally-response p {
+  margin-top: 8px;
+  line-height: 1.45;
+}
+
+.simple-funnel,
+.simple-results {
+  margin-top: 28px;
+  padding: clamp(20px, 4vw, 34px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 20px;
+  background: rgba(9, 14, 27, 0.72);
+  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.28);
+}
+
+.simple-progress {
+  display: inline-flex;
+  min-height: 32px;
+  margin-bottom: 20px;
+  padding: 6px 12px;
+  align-items: center;
+  border-radius: 999px;
+  color: #ffffff;
+  background: #c1121f;
+  font-size: 14px;
+  font-weight: 750;
+}
+
+.simple-cmr-page.revised .simple-funnel h2,
+.simple-cmr-page.revised .simple-results h2 {
+  color: #ffffff;
+  font-size: clamp(25px, 4vw, 36px);
+  line-height: 1.08;
+  font-weight: 780;
+}
+
+.simple-purpose-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 20px;
+}
+
+.simple-purpose-grid button {
+  min-height: 92px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 16px;
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.08);
+  font-size: 22px;
+  font-weight: 760;
+  cursor: pointer;
+}
+
+.simple-purpose-grid button.active {
+  border-color: #e23a46;
+  background: #c1121f;
+}
+
+.simple-cmr-page.revised .simple-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 20px;
+}
+
+.simple-cmr-page.revised .simple-field {
+  display: grid;
+  gap: 8px;
+  color: #ffffff;
+  font-weight: 650;
+}
+
+.simple-cmr-page.revised .simple-field span {
+  color: #ffffff;
+  font-size: 15px;
+}
+
+.simple-cmr-page.revised .simple-field input,
+.simple-cmr-page.revised .simple-field select {
+  width: 100%;
+  min-height: 50px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 12px;
+  padding: 11px 13px;
+  color: #ffffff;
+  background: rgba(15, 23, 42, 0.88);
+}
+
+.simple-submit-summary,
+.simple-results-summary,
+.simple-loading-card,
+.simple-empty,
+.simple-error,
+.simple-validation,
+.simple-safe-message {
+  margin-top: 20px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.simple-submit-summary {
+  display: grid;
+  gap: 4px;
+}
+
+.simple-submit-summary strong {
+  color: #ffffff;
+  font-size: 18px;
+  font-weight: 720;
+}
+
+.simple-cmr-page.revised .simple-validation,
+.simple-cmr-page.revised .simple-error {
+  border: 1px solid rgba(226, 58, 70, 0.78);
+  background: rgba(193, 18, 31, 0.24);
+}
+
+.simple-loading-card {
+  display: grid;
+  gap: 10px;
+}
+
+.simple-cmr-page.revised .simple-loading-bar {
+  height: 9px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.simple-cmr-page.revised .simple-loading-bar::after {
+  content: "";
+  display: block;
+  width: 42%;
+  height: 100%;
+  background: #f4c542;
+  animation: simpleLoading 1.1s infinite alternate;
+}
+
+.simple-flow-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 22px;
+  justify-content: flex-end;
+}
+
+.simple-cmr-page.revised .simple-primary-button,
+.simple-cmr-page.revised .simple-secondary-button {
+  min-height: 48px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 12px;
+  padding: 11px 18px;
+  color: #ffffff;
+  font-weight: 720;
+  cursor: pointer;
+}
+
+.simple-cmr-page.revised .simple-primary-button {
+  border-color: #e23a46;
+  background: #c1121f;
+}
+
+.simple-cmr-page.revised .simple-secondary-button {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.simple-cmr-page.revised .simple-primary-button.full,
+.simple-cmr-page.revised .simple-primary-button.application {
+  width: 100%;
+}
+
+.simple-results-summary {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.simple-results-summary span {
+  font-size: 17px;
+  line-height: 1.35;
+}
+
+.simple-results-summary button,
+.simple-link-button,
+.simple-dial-controls button {
+  border: 0;
+  color: #f4c542;
+  background: transparent;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.simple-rate-dial {
+  display: grid;
+  grid-template-columns: 1fr minmax(260px, 1.3fr) 1fr;
+  gap: 16px;
+  margin-top: 26px;
+  align-items: center;
+}
+
+.simple-dial-center {
+  display: grid;
+  min-height: 300px;
+  padding: 30px 24px;
+  place-items: center;
+  text-align: center;
+  border-radius: 999px;
+  border: 1px solid rgba(244, 197, 66, 0.5);
+  background:
+    radial-gradient(circle, rgba(244, 197, 66, 0.16), rgba(255, 255, 255, 0.05) 58%, rgba(255, 255, 255, 0.02) 100%);
+  box-shadow: 0 0 0 12px rgba(244, 197, 66, 0.06), 0 30px 80px rgba(0, 0, 0, 0.32);
+}
+
+.simple-dial-center strong {
+  color: #f4c542;
+  font-size: clamp(56px, 9vw, 88px);
+  line-height: 0.92;
+  font-weight: 900;
+}
+
+.simple-dial-center p {
+  color: #ffffff;
+  font-size: clamp(24px, 4vw, 34px);
+  font-weight: 780;
+}
+
+.simple-dial-neighbor {
+  display: grid;
+  gap: 10px;
+  place-items: center;
+  color: #d1d5db;
+  text-align: center;
+}
+
+.simple-dial-neighbor button {
+  width: 58px;
+  min-height: 58px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.08);
+  font-size: 34px;
+  cursor: pointer;
+}
+
+.simple-dial-neighbor button:disabled {
+  cursor: not-allowed;
+  opacity: 0.36;
+}
+
+.simple-dial-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 18px;
+  justify-content: center;
+}
+
+.simple-dial-controls button {
+  min-height: 44px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.simple-cmr-page.revised .simple-dial-controls .simple-icon-button {
+  color: #ffffff;
+}
+
+.simple-tradeoff {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 24px;
+}
+
+.simple-tradeoff div {
+  min-height: 106px;
+  padding: 16px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.simple-tradeoff strong {
+  display: block;
+  margin-top: 8px;
+  color: #ffffff;
+  font-size: clamp(22px, 3vw, 30px);
+  line-height: 1.05;
+  font-weight: 800;
+}
+
+.simple-rate-note {
+  margin-top: 12px;
+  text-align: center;
+  line-height: 1.45;
+}
+
+.simple-cmr-page.revised .simple-primary-button.application {
+  margin-top: 22px;
+  min-height: 58px;
+  font-size: 18px;
+}
+
+.simple-safe-message {
+  color: #f4c542;
+}
+
+.simple-compare-area {
+  display: grid;
+  gap: 12px;
+  margin-top: 18px;
+  text-align: center;
+}
+
+.simple-comparison-result {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  text-align: left;
+}
+
+.simple-comparison-result div {
+  padding: 14px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.simple-comparison-result span,
+.simple-comparison-result small {
+  color: #d1d5db;
+}
+
+.simple-comparison-result strong {
+  display: block;
+  color: #f4c542;
+  font-size: 26px;
+}
+
+.simple-cmr-page.revised .simple-disclosure {
+  margin-top: 18px;
+  padding: 0;
+  border: 0;
+  color: #ffffff;
+  background: transparent;
+  box-shadow: none;
+}
+
+.simple-cmr-page.revised .simple-disclosure summary {
+  min-height: 48px;
+  padding: 13px 16px;
+  border-radius: 12px;
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.08);
+  cursor: pointer;
+  font-weight: 720;
+}
+
+.simple-cmr-page.revised .simple-disclosure p {
+  margin-top: 10px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  line-height: 1.6;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+@media (max-width: 720px) {
+  .simple-cmr-page.revised {
+    padding: 20px 16px 34px;
+  }
+
+  .simple-header {
+    gap: 14px;
+    text-align: left;
+  }
+
+  .simple-cmr-page.revised .simple-brand-title {
+    font-size: 30px;
+  }
+
+  .simple-cmr-page.revised .simple-header-copy h1 {
+    font-size: 33px;
+  }
+
+  .simple-cmr-page.revised .simple-header-copy p {
+    margin-inline: 0;
+    font-size: 16px;
+  }
+
+  .simple-cmr-page.revised .simple-sally-composer {
+    grid-template-columns: 44px minmax(0, 1fr) 44px 44px;
+    gap: 4px;
+    border-radius: 22px;
+  }
+
+  .simple-cmr-page.revised .simple-sally-composer input {
+    font-size: 13px;
+  }
+
+  .simple-funnel,
+  .simple-results {
+    margin-top: 22px;
+    padding: 18px;
+    border-radius: 18px;
+  }
+
+  .simple-purpose-grid,
+  .simple-cmr-page.revised .simple-form-grid,
+  .simple-tradeoff,
+  .simple-comparison-result {
+    grid-template-columns: 1fr;
+  }
+
+  .simple-purpose-grid button {
+    min-height: 72px;
+  }
+
+  .simple-flow-actions,
+  .simple-results-summary {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .simple-cmr-page.revised .simple-primary-button,
+  .simple-cmr-page.revised .simple-secondary-button {
+    width: 100%;
+  }
+
+  .simple-rate-dial {
+    grid-template-columns: 58px minmax(0, 1fr) 58px;
+    gap: 8px;
+  }
+
+  .simple-dial-center {
+    min-height: 236px;
+    padding: 22px 12px;
+  }
+
+  .simple-dial-center strong {
+    font-size: 44px;
+  }
+
+  .simple-dial-center p {
+    font-size: 22px;
+  }
+
+  .simple-dial-neighbor span {
+    display: none;
+  }
+
+  .simple-dial-neighbor button {
+    width: 50px;
+    min-height: 50px;
+  }
+}

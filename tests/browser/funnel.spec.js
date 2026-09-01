@@ -292,26 +292,55 @@ test("rate dial changes only among real options and updates tradeoff values", as
   await expect(page.getByTestId("selected-rate")).toHaveText("6.500%");
   await expect(page.getByTestId("selected-payment")).toHaveText("$2,731/mo P&I");
   await expect(page.getByTestId("rate-tradeoff")).toContainText("Principal & interest");
+  await expect(page.getByTestId("rate-tradeoff").locator("> div")).toHaveCount(3);
   await expect(page.getByTestId("selected-adjustment")).toHaveText("No discount points or lender credit");
   await expect(page.getByTestId("estimated-closing-costs")).toHaveText("$6,200");
-  await expect(page.getByTestId("estimated-closing-charges")).toHaveText("$6,200");
+  await expect(page.getByTestId("app-shell")).not.toContainText("Estimated closing charges");
+  await expect(page.locator(".simple-cost-equation:visible")).toHaveCount(0);
+  await expect(page.getByTestId("closing-cost-status")).toHaveText("Estimated using the current fee schedule.");
+  await expect(page.getByTestId("app-shell")).not.toContainText("qa-fees-v1");
   await expect(page.getByTestId("app-shell")).not.toContainText(/Cash to Close|Estimated cash to close/i);
 
   await page.getByRole("button", { name: "Next rate" }).click();
   await expect(page.getByTestId("selected-rate")).toHaveText("6.750%");
   await expect(page.getByTestId("selected-payment")).toHaveText("$2,832/mo P&I");
-  await expect(page.getByTestId("selected-adjustment")).toHaveText("-$2,672 Lender credit (0.625%)");
-  await expect(page.getByTestId("estimated-closing-charges")).toHaveText("$3,528");
+  await expect(page.getByTestId("selected-adjustment")).toHaveText("−$2,672 Lender credit (0.625%)");
+  await expect(page.getByTestId("estimated-closing-costs")).toHaveText("$3,528");
   await expect(page.getByTestId("selected-adjustment")).toHaveClass(/credit/);
 
   await page.getByRole("button", { name: "Lowest rate" }).click();
   await expect(page.getByTestId("selected-rate")).toHaveText("6.250%");
   await expect(page.getByTestId("selected-adjustment")).toHaveText("+$3,741 Discount points (0.875%)");
-  await expect(page.getByTestId("estimated-closing-charges")).toHaveText("$9,941");
+  await expect(page.getByTestId("estimated-closing-costs")).toHaveText("$9,941");
   await expect(page.getByTestId("selected-adjustment")).toHaveClass(/points/);
 
   await page.getByTestId("rate-wheel").press("ArrowRight");
   await expect(page.getByTestId("selected-rate")).toHaveText("6.500%");
+});
+
+test("closing-cost breakdown reveals base costs and rate adjustment equation only on demand", async ({ page }) => {
+  await openApp(page);
+  await submitPurchase(page);
+
+  await expect(page.locator(".simple-cost-equation:visible")).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Lowest rate" }).click();
+  await page.getByText("View closing-cost breakdown").click();
+  await expect(page.getByTestId("closing-cost-equation")).toContainText("Base closing costs");
+  await expect(page.getByTestId("closing-cost-equation")).toContainText("$6,200");
+  await expect(page.getByTestId("closing-cost-equation")).toContainText("+");
+  await expect(page.getByTestId("closing-cost-equation")).toContainText("Discount points");
+  await expect(page.getByTestId("closing-cost-equation")).toContainText("$3,741");
+  await expect(page.getByTestId("closing-cost-equation")).toContainText("Estimated closing costs after rate adjustment");
+  await expect(page.getByTestId("closing-cost-equation")).toContainText("$9,941");
+
+  await page.getByText("View closing-cost breakdown").click();
+  await page.getByRole("button", { name: "Most credit" }).click();
+  await page.getByText("View closing-cost breakdown").click();
+  await expect(page.getByTestId("closing-cost-equation")).toContainText("−");
+  await expect(page.getByTestId("closing-cost-equation")).toContainText("Lender credit");
+  await expect(page.getByTestId("closing-cost-equation")).toContainText("$2,672");
+  await expect(page.getByTestId("closing-cost-equation")).toContainText("$3,528");
 });
 
 test("rate dial sound and speaker controls only react to real selection changes", async ({ page }) => {
@@ -414,8 +443,9 @@ test("estimate-unavailable state stays controlled without invented closing costs
   await openApp(page, { mode: "unavailable-estimate" });
   await submitPurchase(page);
 
-  await expect(page.getByTestId("estimated-closing-costs")).toHaveText("Unavailable");
-  await expect(page.getByTestId("estimated-closing-charges")).toHaveText("Unavailable");
+  await expect(page.getByTestId("estimated-closing-costs")).toHaveText("Estimated closing costs unavailable");
+  await expect(page.getByTestId("rate-tradeoff").locator("> div")).toHaveCount(3);
+  await expect(page.getByTestId("app-shell")).not.toContainText("Estimated closing charges");
   await expect(page.getByTestId("closing-cost-status")).toContainText("unavailable until an approved HLOA fee schedule is connected");
 });
 

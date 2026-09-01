@@ -156,7 +156,7 @@ function formatRateAdjustment(option) {
 
   if (Number(pricingOption.lenderCreditDollars) > 0) {
     return {
-      label: `-${formatCurrency(pricingOption.lenderCreditDollars)} Lender credit (${formatPercent(pricingOption.lenderCreditPercent)})`,
+      label: `\u2212${formatCurrency(pricingOption.lenderCreditDollars)} Lender credit (${formatPercent(pricingOption.lenderCreditPercent)})`,
       className: "credit",
     };
   }
@@ -171,27 +171,62 @@ function formatRateAdjustment(option) {
   return { label: "No discount points or lender credit", className: "neutral" };
 }
 
-function formatEstimatedBaseClosingCosts(option) {
-  const estimate = getClosingCostEstimate(option);
-  if (!estimate || estimate.estimatedBaseClosingCosts == null) return "Unavailable";
-  return formatCurrency(estimate.estimatedBaseClosingCosts);
-}
-
 function formatEstimatedClosingCharges(option) {
   const charges = getEstimatedClosingCharges(option);
   return charges == null ? "Unavailable" : formatCurrency(charges);
 }
 
-function getClosingCostStatusText(option) {
+function getPublicClosingCostStatusText(option) {
   const estimate = getClosingCostEstimate(option);
   if (!estimate) return "Closing-cost estimate was not returned.";
   if (estimate.status === "estimate_unavailable") {
     return "Estimated closing costs are unavailable until an approved HLOA fee schedule is connected.";
   }
   if (estimate.status === "estimate_incomplete") {
-    return "Estimated closing costs include only currently configured fee items.";
+    return "Estimated using the currently configured fee items.";
   }
-  return `Fee schedule ${estimate.feeScheduleVersion || "active"} as of ${new Date(estimate.asOf).toLocaleDateString()}.`;
+  return "Estimated using the current fee schedule.";
+}
+
+function getClosingCostCardValue(option) {
+  const estimate = getClosingCostEstimate(option);
+  if (!estimate || estimate.status === "estimate_unavailable") return "Estimated closing costs unavailable";
+  return formatEstimatedClosingCharges(option);
+}
+
+function getClosingCostEquation(option) {
+  const pricingOption = getQuotePricingOption(option);
+  const estimate = getClosingCostEstimate(option);
+  const estimatedClosingCharges = getEstimatedClosingCharges(option);
+
+  if (!pricingOption || !estimate || estimate.estimatedBaseClosingCosts == null || estimatedClosingCharges == null) {
+    return null;
+  }
+
+  const parts = [
+    { label: "Base closing costs", value: formatCurrency(estimate.estimatedBaseClosingCosts), className: "base" },
+  ];
+
+  if (Number(pricingOption.pointsDollars) > 0) {
+    parts.push({
+      label: "Discount points",
+      value: `+${formatCurrency(pricingOption.pointsDollars)}`,
+      className: "points",
+    });
+  }
+
+  if (Number(pricingOption.lenderCreditDollars) > 0) {
+    parts.push({
+      label: "Lender credit",
+      value: `\u2212${formatCurrency(pricingOption.lenderCreditDollars)}`,
+      className: "credit",
+    });
+  }
+
+  return {
+    parts,
+    total: formatCurrency(estimatedClosingCharges),
+  };
 }
 
 function pickParOption(options) {
@@ -309,6 +344,7 @@ export default function SimplifiedBorrowerFunnel() {
   const isResults = pricingState === "ready" && options.length > 0;
   const selectedBorrowerQuote = getBorrowerQuote(selectedOption);
   const selectedRateAdjustment = formatRateAdjustment(selectedOption);
+  const closingCostEquation = getClosingCostEquation(selectedOption);
   const canDictate =
     typeof window !== "undefined" && Boolean(window.SpeechRecognition || window.webkitSpeechRecognition);
 
@@ -718,15 +754,44 @@ export default function SimplifiedBorrowerFunnel() {
           <div className="simple-tradeoff" data-testid="rate-tradeoff">
             <div><span>Principal &amp; interest</span><strong>{formatCurrency(selectedOption?.paymentPI)}</strong></div>
             <div>
-              <span>Rate cost or credit</span>
+              <span>Points or lender credit</span>
               <strong className={`simple-adjustment ${selectedRateAdjustment.className}`} data-testid="selected-adjustment">
                 {selectedRateAdjustment.label}
               </strong>
             </div>
-            <div><span>Estimated closing costs</span><strong data-testid="estimated-closing-costs">{formatEstimatedBaseClosingCosts(selectedOption)}</strong></div>
-            <div><span>Estimated closing charges</span><strong data-testid="estimated-closing-charges">{formatEstimatedClosingCharges(selectedOption)}</strong></div>
+            <div>
+              <span>Estimated closing costs</span>
+              <strong className="simple-estimated-closing-costs" data-testid="estimated-closing-costs">
+                {getClosingCostCardValue(selectedOption)}
+              </strong>
+            </div>
           </div>
-          <p className="simple-cost-status" data-testid="closing-cost-status">{getClosingCostStatusText(selectedOption)}</p>
+          <details className="simple-cost-breakdown" data-testid="closing-cost-breakdown">
+            <summary>View closing-cost breakdown</summary>
+            {closingCostEquation ? (
+              <div className="simple-cost-equation" data-testid="closing-cost-equation">
+                {closingCostEquation.parts.map((part, index) => (
+                  <React.Fragment key={part.label}>
+                    {index > 0 ? <span className={`simple-equation-operator ${part.className}`}>{part.className === "credit" ? "\u2212" : "+"}</span> : null}
+                    <span className={`simple-equation-item ${part.className}`}>
+                      <span>{part.label}</span>
+                      <strong>{part.value.replace(/^[+\u2212-]/, "")}</strong>
+                    </span>
+                  </React.Fragment>
+                ))}
+                <span className="simple-equation-operator">=</span>
+                <span className="simple-equation-item total">
+                  <span>Estimated closing costs after rate adjustment</span>
+                  <strong>{closingCostEquation.total}</strong>
+                </span>
+              </div>
+            ) : (
+              <p className="simple-cost-breakdown-empty">
+                Base closing costs and rate-adjustment details will appear once an approved HLOA fee schedule is connected.
+              </p>
+            )}
+          </details>
+          <p className="simple-cost-status" data-testid="closing-cost-status">{getPublicClosingCostStatusText(selectedOption)}</p>
           <p className="simple-cost-disclosure" data-testid="cost-disclosure">{COST_DISCLOSURE}</p>
           <p className="simple-rate-note">Lower rates may cost more upfront. Higher rates may provide lender credit.</p>
           <button type="button" className="simple-primary-button application" data-testid="application-cta" onClick={handleApplication}>Continue to Application</button>
@@ -750,7 +815,7 @@ export default function SimplifiedBorrowerFunnel() {
         <summary>Important rate information</summary>
         <p>
           Displayed pricing is not a loan approval, commitment, or rate lock. Rates, points, lender credits,
-          payments, and estimated closing charges are subject to change. Principal and interest are shown only when
+          payments, and estimated closing costs are subject to change. Principal and interest are shown only when
           available; taxes, homeowners insurance, mortgage insurance, HOA dues, APR, fees, and other applicable housing
           expenses are not included unless specifically supplied. The figures shown are not a formal Loan Estimate.
         </p>

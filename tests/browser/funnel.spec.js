@@ -73,6 +73,15 @@ function quoteBodyFor(payload, mode) {
   if (mode === "empty") {
     return { status: "qa-local", options: [], message: "No mocked options" };
   }
+  if (mode === "empty-with-callback") {
+    return {
+      status: "paused",
+      options: [],
+      message: "Due to current market conditions, online pricing is temporarily unavailable. Please leave your information and one of our mortgage advisors will contact you.",
+      leadCaptureEnabled: true,
+      callbackEnabled: true,
+    };
+  }
   if (mode === "unavailable-estimate") {
     return {
       status: "qa-local",
@@ -366,6 +375,12 @@ async function submitPurchase(page) {
   await fillBorrowerBasics(page);
   await page.getByTestId("submit-scenario").click();
   await expect(page.getByTestId("results-screen")).toBeVisible();
+}
+
+async function submitPurchaseWithoutResults(page) {
+  await fillPurchaseProperty(page);
+  await fillBorrowerBasics(page);
+  await page.getByTestId("submit-scenario").click();
 }
 
 async function fillCashOutRefinance(page) {
@@ -834,6 +849,20 @@ test("validation and provider error states do not invent rates", async ({ page }
   await errorPage.getByTestId("submit-scenario").click();
   await expect(errorPage.getByTestId("pricing-error")).toContainText("No rates are shown");
   await expect(errorPage.getByTestId("results-screen")).toHaveCount(0);
+});
+
+test("advisor follow-up is shown when the pricing engine signals leadCaptureEnabled/callbackEnabled", async ({ page }) => {
+  await openApp(page, { mode: "empty-with-callback" });
+  await submitPurchaseWithoutResults(page);
+  await expect(page.getByTestId("empty-results")).toBeVisible();
+  await expect(page.getByTestId("advisor-follow-up-available")).toBeVisible();
+});
+
+test("advisor follow-up does not appear when the pricing engine does not signal it", async ({ page }) => {
+  await openApp(page, { mode: "empty" });
+  await submitPurchaseWithoutResults(page);
+  await expect(page.getByTestId("empty-results")).toBeVisible();
+  await expect(page.getByTestId("advisor-follow-up-available")).toHaveCount(0);
 });
 
 test("Sally remains compact and text-first with scenario context", async ({ page }) => {

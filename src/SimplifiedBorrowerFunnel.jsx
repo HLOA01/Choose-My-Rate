@@ -466,6 +466,8 @@ export default function SimplifiedBorrowerFunnel() {
   const previousOption = selectedIndex > 0 ? options[selectedIndex - 1] : null;
   const nextOption = selectedIndex < options.length - 1 ? options[selectedIndex + 1] : null;
   const isResults = pricingState === "ready" && options.length > 0;
+  const showAdvisorFollowUp =
+    pricingState === "empty" && Boolean(quote?.leadCaptureEnabled || quote?.callbackEnabled);
   const selectedBorrowerQuote = getBorrowerQuote(selectedOption);
   const selectedRateAdjustment = formatRateAdjustment(selectedOption);
   const closingCostEquation = getClosingCostEquation(selectedOption);
@@ -1202,7 +1204,16 @@ export default function SimplifiedBorrowerFunnel() {
               <div className="simple-loading-bar" />
             </div>
           ) : null}
-          {pricingState === "empty" ? <div className="simple-empty" data-testid="empty-results">{pricingMessage}</div> : null}
+          {pricingState === "empty" ? (
+            <div className="simple-empty" data-testid="empty-results">
+              <p>{pricingMessage}</p>
+              {showAdvisorFollowUp ? (
+                <p data-testid="advisor-follow-up-available">
+                  An HLOA mortgage advisor follow-up is available for this scenario.
+                </p>
+              ) : null}
+            </div>
+          ) : null}
           {pricingState === "error" ? <div className="simple-error" data-testid="pricing-error">{pricingMessage}</div> : null}
 
           <div className="simple-flow-actions">

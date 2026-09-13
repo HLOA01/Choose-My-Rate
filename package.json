@@ -9,6 +9,7 @@
     "lint": "eslint .",
     "qa:scenarios": "node ./scripts/qa-scenarios.mjs",
     "qa:sally": "node ./scripts/qa-sally.mjs",
+    "qa:sally-guardrail": "node ./scripts/qa-sally-guardrail.mjs",
     "qa:browser": "playwright test",
     "preview": "vite preview"
   },

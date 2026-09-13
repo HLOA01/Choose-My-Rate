@@ -2348,6 +2348,16 @@ button.pricing-table-row {
   background: rgba(15, 23, 42, 0.88);
 }
 
+.simple-down-payment-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 76px;
+  gap: 8px;
+}
+
+.simple-cmr-page.revised .simple-down-payment-control select {
+  text-align: center;
+}
+
 .simple-submit-summary,
 .simple-results-summary,
 .simple-loading-card,

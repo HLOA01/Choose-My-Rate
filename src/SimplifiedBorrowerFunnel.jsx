@@ -4,6 +4,21 @@ import { askSallyApi, hasSallyApi } from "./sallyApi";
 import { hasPricingApi, quotePricing } from "./pricingApi";
 import { mapCreditScoreToRange, processBorrowerMessageForFunnel } from "./SallyBrain";
 import { useSallyVoice } from "./hooks/useSallyVoice";
+import { useHloaSession } from "./platform/useHloaSession";
+import { buildFunnelEventPayload, mapScenarioKind } from "./platform/hloaPlatform";
+
+// Invisible status node: never changes the layout or the approved design.
+const SR_ONLY_STYLE = {
+  position: "absolute",
+  width: "1px",
+  height: "1px",
+  padding: 0,
+  margin: "-1px",
+  overflow: "hidden",
+  clip: "rect(0 0 0 0)",
+  whiteSpace: "nowrap",
+  border: 0,
+};
 
 const APPLICATION_URL =
   import.meta.env.VITE_APPLICATION_URL ||
@@ -452,6 +467,9 @@ export default function SimplifiedBorrowerFunnel() {
   const [pendingFocus, setPendingFocus] = useState("");
   const touchStartRef = useRef(null);
   const abortRef = useRef(null);
+  const hloa = useHloaSession();
+  const lastPricedSignatureRef = useRef("");
+  const lastRateEmitRef = useRef({ index: -1, at: 0 });
   const recognitionRef = useRef(null);
   const mediaStreamRef = useRef(null);
   const audioContextRef = useRef(null);
@@ -625,6 +643,14 @@ export default function SimplifiedBorrowerFunnel() {
     setSelectedOptionId(optionKey(option));
     playTick();
     window.navigator.vibrate?.(12);
+    // Emit rate.selected at a genuine selection change, debounced so a fast dial
+    // spin is one event. Non-blocking; never affects the selection.
+    const index = options.findIndex((entry) => optionKey(entry) === optionKey(option));
+    const now = Date.now();
+    if (index !== lastRateEmitRef.current.index || now - lastRateEmitRef.current.at > 800) {
+      lastRateEmitRef.current = { index, at: now };
+      hloa.emit("rate.selected", index >= 0 ? { optionIndex: index } : {});
+    }
   };
 
   const moveRate = (direction) => {
@@ -654,6 +680,22 @@ export default function SimplifiedBorrowerFunnel() {
     setPricingMessage("Looking up live rates...");
     setQuote(null);
 
+    // Platform identity + telemetry. Runs alongside pricing; a platform failure
+    // never blocks or alters the rate request. Pricing is the borrower's action;
+    // identity/events are best-effort audit + follow-up signal.
+    const funnelPayload = buildFunnelEventPayload(pricingPayload);
+    const scenarioSignature = JSON.stringify(funnelPayload);
+    const isReprice =
+      Boolean(lastPricedSignatureRef.current) && lastPricedSignatureRef.current !== scenarioSignature;
+    lastPricedSignatureRef.current = scenarioSignature;
+    void hloa
+      .ensureIdentity({ kind: mapScenarioKind(scenario) })
+      .then(() => {
+        hloa.emit("rates.requested", funnelPayload);
+        if (isReprice) hloa.emit("scenario.updated", funnelPayload);
+      })
+      .catch(() => {});
+
     try {
       const response = await quotePricing(pricingPayload, { signal: controller.signal });
       const responseOptions = Array.isArray(response?.options) ? response.options : [];
@@ -662,12 +704,14 @@ export default function SimplifiedBorrowerFunnel() {
         setPricingState("empty");
         setPricingMessage(response?.message || "No live rate options are available for this scenario.");
         setSelectedOptionId("");
+        hloa.emit("rates.returned", { status: "empty", optionCount: 0 });
         return;
       }
       const parOption = pickParOption(responseOptions);
       setSelectedOptionId(optionKey(parOption));
       setPricingState("ready");
       setPricingMessage("Your live rate options are ready.");
+      hloa.emit("rates.returned", { status: "ready", optionCount: responseOptions.length });
     } catch (error) {
       if (error.name === "AbortError") return;
       setPricingState("error");
@@ -724,6 +768,7 @@ export default function SimplifiedBorrowerFunnel() {
       disclosureVersionAccepted: CLOSING_COST_DISCLOSURE_VERSION,
     };
     window.sessionStorage?.setItem("chooseMyRate.applicationHandoff.v1", JSON.stringify(handoff));
+    hloa.emit("application.started", {});
     if (!APPLICATION_URL) {
       setHandoffMessage("Application handoff is not configured yet. Your selected rate stays here.");
       return;
@@ -1072,6 +1117,11 @@ export default function SimplifiedBorrowerFunnel() {
 
   return (
     <main className="simple-cmr-page revised" data-testid="app-shell">
+      <span style={SR_ONLY_STYLE} aria-live="polite" data-testid="platform-sync-status">
+        {hloa.degraded
+          ? "We could not save your session yet. We will finish shortly and it does not affect your rates."
+          : ""}
+      </span>
       <header className="simple-header" data-testid="header-composer">
         <div className="simple-brand-block">
           <div className="simple-brand-title">CHOOSE MY RATE</div>

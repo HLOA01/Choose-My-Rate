@@ -21,6 +21,7 @@ export default defineConfig({
       VITE_PRICING_ENGINE_API_URL: qaBaseUrl.replace(/\/$/, "") + "/__qa-pricing",
       VITE_SALLY_API_URL: qaBaseUrl.replace(/\/$/, "") + "/__qa-sally",
       VITE_SALLY_VOICE_API_URL: qaBaseUrl.replace(/\/$/, "") + "/__qa-sally-voice",
+      VITE_HLOA_LEAD_ENGINE_URL: qaBaseUrl.replace(/\/$/, "") + "/__qa-hloa",
     },
     url: qaBaseUrl,
     reuseExistingServer: false,

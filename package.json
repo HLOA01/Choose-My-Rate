@@ -10,6 +10,7 @@
     "qa:scenarios": "node ./scripts/qa-scenarios.mjs",
     "qa:sally": "node ./scripts/qa-sally.mjs",
     "qa:sally-guardrail": "node ./scripts/qa-sally-guardrail.mjs",
+    "qa:platform": "node ./scripts/qa-platform.mjs",
     "qa:browser": "playwright test",
     "preview": "vite preview"
   },

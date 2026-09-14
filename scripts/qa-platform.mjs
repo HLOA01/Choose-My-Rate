@@ -65,13 +65,23 @@ check("scenario kind mapping", () => {
   assert.equal(mapScenarioKind({}), "refinance");
 });
 
-check("url attribution: campaign + source detail + valid agent id only", () => {
-  const a = readUrlAttribution("?utm_campaign=spring&utm_source=fb&agentId=CMR-AGT-01J000000000000000000000ZZ");
+check("url attribution: campaign + source detail + valid opaque referral token only", () => {
+  const a = readUrlAttribution("?utm_campaign=spring&utm_source=fb&ref=a1b2c3d4e9");
   assert.equal(a.campaign, "spring");
   assert.equal(a.sourceDetail, "fb");
-  assert.equal(a.agentId, "CMR-AGT-01J000000000000000000000ZZ");
-  assert.equal(readUrlAttribution("?agent=not-canonical").agentId, undefined);
+  assert.equal(a.referralToken, "a1b2c3d4e9");
   assert.deepEqual(readUrlAttribution(""), {});
+});
+
+check("url attribution: a raw canonical agentId in the URL is never captured -- not a trusted credential", () => {
+  assert.equal(readUrlAttribution("?agentId=CMR-AGT-01J000000000000000000000ZZ").agentId, undefined);
+  assert.equal(readUrlAttribution("?agentId=CMR-AGT-01J000000000000000000000ZZ").referralToken, undefined);
+  assert.equal(readUrlAttribution("?agent=CMR-AGT-01J000000000000000000000ZZ").agentId, undefined);
+});
+
+check("url attribution: a malformed ref token (wrong shape) is rejected", () => {
+  assert.equal(readUrlAttribution("?ref=Not-Valid!").referralToken, undefined);
+  assert.equal(readUrlAttribution("?ref=").referralToken, undefined);
 });
 
 console.log(`Total: ${passed}/${passed + failed} passed`);

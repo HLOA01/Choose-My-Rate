@@ -82,25 +82,38 @@ export function mapScenarioKind(scenario = {}) {
   return "refinance";
 }
 
-/** Read attribution parameters already present in the page URL. All optional. */
+/**
+ * Read attribution parameters already present in the page URL. All optional.
+ *
+ * `ref` carries an opaque Agent Portal referral token, never a canonical
+ * Agent id. A canonical id (`CMR-AGT-…`) is public — it appears in every
+ * agent's own shared referral link, in Core lookups, on every lead/event
+ * response — and permanent, so accepting one directly from an anonymous
+ * borrower's URL would let a borrower attribute their own lead to ANY other
+ * agent simply by substituting a different (equally public) id. The token is
+ * opaque and resolved server-side by Lead Engine (against Agent Portal's
+ * published API) precisely so it proves nothing on its own and can be
+ * rotated/disabled independent of the agent's permanent identity. Choose My
+ * Rate never resolves it and never sees a canonical Agent id here.
+ */
 export function readUrlAttribution(search = (typeof window !== "undefined" ? window.location.search : "")) {
   const params = new URLSearchParams(search || "");
   const attribution = {};
   const campaign = params.get("utm_campaign");
   const sourceDetail = params.get("utm_source") || params.get("utm_content");
-  const agentId = params.get("agentId") || params.get("agent");
+  const referralToken = params.get("ref");
   if (campaign) attribution.campaign = campaign.slice(0, 120);
   if (sourceDetail) attribution.sourceDetail = sourceDetail.slice(0, 240);
-  if (agentId && /^CMR-AGT-[0-9A-HJKMNP-TV-Z]{26}$/.test(agentId)) attribution.agentId = agentId;
+  if (referralToken && /^[a-z0-9]{1,64}$/.test(referralToken)) attribution.referralToken = referralToken;
   return attribution;
 }
 
 /** POST /leads — obtain a canonical Lead id. `sessionKey` gives natural-key + Idempotency-Key dedupe. */
-export async function createLead({ sessionKey, campaign, sourceDetail, agentId }) {
+export async function createLead({ sessionKey, campaign, sourceDetail, referralToken }) {
   const body = { source: "choose_my_rate", externalProvider: PROVIDER, externalLeadId: sessionKey };
   if (campaign) body.campaign = campaign;
   if (sourceDetail) body.sourceDetail = sourceDetail;
-  if (agentId) body.agentId = agentId;
+  if (referralToken) body.referralToken = referralToken;
   const res = await call("POST", "/leads", { body, headers: { "idempotency-key": `cmr-lead:${sessionKey}` } });
   return res.ok ? { ok: true, leadId: res.json?.lead?.leadId } : res;
 }

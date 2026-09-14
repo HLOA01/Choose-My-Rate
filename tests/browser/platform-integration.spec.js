@@ -252,22 +252,35 @@ test("double submission is idempotent — a stable Idempotency-Key, one lead", a
   expect((await readIdentity(page)).leadId).toBe(LEAD_ID);
 });
 
-test("agent attribution passes through when supplied in the URL", async ({ page }) => {
-  const agentId = "CMR-AGT-01M260000000000000000000DD";
-  const captured = await installBoundary(page, { urlSuffix: `?agentId=${agentId}&utm_campaign=spring&utm_source=fb` });
+test("an opaque referral token passes through when supplied in the URL -- never a raw canonical agent id", async ({ page }) => {
+  const referralToken = "a1b2c3d4e9";
+  const captured = await installBoundary(page, { urlSuffix: `?ref=${referralToken}&utm_campaign=spring&utm_source=fb` });
   await fillPurchaseAndSubmit(page);
   await expect.poll(() => captured.leadPosts.length).toBeGreaterThan(0);
-  expect(captured.leadPosts[0].agentId).toBe(agentId);
+  // Choose My Rate forwards the opaque token as-is; it never resolves it to
+  // a canonical agentId itself, and never sends a raw agentId field --
+  // attribution-integrity hardening: see AGENT_PORTAL_STATUS.md.
+  expect(captured.leadPosts[0].referralToken).toBe(referralToken);
+  expect(captured.leadPosts[0].agentId).toBeUndefined();
   expect(captured.leadPosts[0].campaign).toBe("spring");
   expect(captured.leadPosts[0].sourceDetail).toBe("fb");
 });
 
-test("a missing agent id works normally (no agentId in intake)", async ({ page }) => {
+test("a manually-supplied ?agentId= in the URL is never forwarded -- a canonical id is not a trusted attribution credential", async ({ page }) => {
+  const captured = await installBoundary(page, { urlSuffix: "?agentId=CMR-AGT-01M260000000000000000000DD" });
+  await fillPurchaseAndSubmit(page);
+  await expect.poll(() => captured.leadPosts.length).toBeGreaterThan(0);
+  expect(captured.leadPosts[0].agentId).toBeUndefined();
+  expect(captured.leadPosts[0].referralToken).toBeUndefined();
+});
+
+test("a missing referral works normally (no attribution field in intake)", async ({ page }) => {
   const captured = await installBoundary(page);
   await fillPurchaseAndSubmit(page);
   await expect(page.getByTestId("results-screen")).toBeVisible();
   await expect.poll(() => captured.leadPosts.length).toBeGreaterThan(0);
   expect(captured.leadPosts[0].agentId).toBeUndefined();
+  expect(captured.leadPosts[0].referralToken).toBeUndefined();
 });
 
 test("funnel events are emitted at real transitions with a session correlation id", async ({ page }) => {

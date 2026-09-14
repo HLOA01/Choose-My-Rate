@@ -162,6 +162,83 @@ function parseModelJson(text) {
   }
 }
 
+// --- Reply guardrail -------------------------------------------------------
+//
+// Sally's structured scenarioUpdates are already whitelisted against
+// SCENARIO_KEYS above. This section closes the remaining gap: the free-form
+// replyText the model writes for the borrower to read was previously
+// returned unchecked. These functions verify that any dollar or percent
+// figure appearing in replyText is actually traceable to a real source
+// (the current scenario, the deterministic parser's output, or an actual
+// returned pricing option) before the reply is shown to a borrower.
+//
+// This is intentionally scoped to $ and % figures, which cover the
+// dollar-amount and rate/point claims Sally is instructed she "may explain."
+// It is a guardrail, not a full natural-language fact-checker.
+
+const CLAIM_MATCH_MIN_RELATIVE_TOLERANCE = 0.01; // 1% of the source value
+const CLAIM_MATCH_MIN_ABSOLUTE_TOLERANCE = 0.5;
+
+function addNumberVariants(allowedNumbers, rawValue) {
+  const numeric = Number(rawValue);
+  if (!Number.isFinite(numeric)) return;
+  allowedNumbers.add(numeric);
+  allowedNumbers.add(Math.round(numeric));
+  allowedNumbers.add(Math.round(numeric * 10) / 10);
+  allowedNumbers.add(Math.round(numeric * 100) / 100);
+}
+
+export function collectAllowedNumbers({ currentScenario, pricingOptions, localResult, deterministicUpdates } = {}) {
+  const allowedNumbers = new Set();
+
+  for (const source of [currentScenario, localResult?.scenario, deterministicUpdates]) {
+    if (source && typeof source === "object") {
+      for (const value of Object.values(source)) {
+        addNumberVariants(allowedNumbers, value);
+      }
+    }
+  }
+
+  for (const option of Array.isArray(pricingOptions) ? pricingOptions : []) {
+    for (const key of ["rate", "price", "paymentPI", "paymentPITI", "estimatedCashToClose"]) {
+      addNumberVariants(allowedNumbers, option?.[key]);
+    }
+  }
+
+  return allowedNumbers;
+}
+
+export function extractCurrencyAndPercentClaims(text) {
+  const source = String(text || "");
+  const dollarPattern = /\$\s?-?\d[\d,]*(?:\.\d+)?/g;
+  const percentPattern = /-?\d+(?:\.\d+)?\s?%/g;
+
+  const dollars = [...source.matchAll(dollarPattern)].map((match) => Number(match[0].replace(/[$,\s]/g, "")));
+  const percents = [...source.matchAll(percentPattern)].map((match) => Number(match[0].replace(/[%\s]/g, "")));
+
+  return [...dollars, ...percents].filter((value) => Number.isFinite(value));
+}
+
+function isNumberSourced(claim, allowedNumbers) {
+  for (const allowed of allowedNumbers) {
+    const tolerance = Math.max(CLAIM_MATCH_MIN_ABSOLUTE_TOLERANCE, Math.abs(allowed) * CLAIM_MATCH_MIN_RELATIVE_TOLERANCE);
+    if (Math.abs(claim - allowed) <= tolerance) return true;
+  }
+  return false;
+}
+
+export function findUnsourcedFinancialClaims(text, allowedNumbers) {
+  return extractCurrencyAndPercentClaims(text).filter((claim) => !isNumberSourced(claim, allowedNumbers));
+}
+
+export function validateReplyText(replyText, context) {
+  const allowedNumbers = collectAllowedNumbers(context);
+  const unsourcedClaims = findUnsourcedFinancialClaims(replyText, allowedNumbers);
+  return { safe: unsourcedClaims.length === 0, unsourcedClaims };
+}
+
+// --- End reply guardrail ----------------------------------------------------
+
 function buildResponsesPayload({ model, instructions, userMessage, currentScenario, conversationHistory, pricingOptions, localResult, deterministicUpdates }) {
   const historyMessages = normalizeConversationHistory(conversationHistory).map((item) => ({
     role: item.role,
@@ -298,13 +375,29 @@ export async function handler(event) {
   const scenarioUpdates = sanitizeScenarioUpdates(parsed.scenarioUpdates);
   const fallbackScenarioUpdates = Object.keys(scenarioUpdates).length ? scenarioUpdates : deterministicUpdates;
 
+  const candidateReplyText = String(parsed.replyText || "").trim();
+  const replyValidation = candidateReplyText
+    ? validateReplyText(candidateReplyText, { currentScenario, pricingOptions, localResult, deterministicUpdates })
+    : { safe: true, unsourcedClaims: [] };
+
+  if (!replyValidation.safe) {
+    console.warn("Sally reply guardrail rejected unsourced financial claim(s):", replyValidation.unsourcedClaims);
+  }
+
+  const replyText = candidateReplyText && replyValidation.safe
+    ? candidateReplyText
+    : String(localResult.message || "Got it. Let's confirm that using your actual numbers before I go further.");
+
   return jsonResponse(200, {
-    replyText: String(parsed.replyText || localResult.message || "Got it. Tell me a little more."),
+    replyText,
     detectedIntent: String(parsed.detectedIntent || "other"),
     scenarioUpdates: fallbackScenarioUpdates,
     nextQuestion: String(parsed.nextQuestion || ""),
     needsPricingRefresh: Boolean(parsed.needsPricingRefresh || Object.keys(fallbackScenarioUpdates).length),
-    confidence: ["low", "medium", "high"].includes(parsed.confidence) ? parsed.confidence : "medium",
+    confidence: replyValidation.safe
+      ? (["low", "medium", "high"].includes(parsed.confidence) ? parsed.confidence : "medium")
+      : "low",
+    guardrailTriggered: !replyValidation.safe,
     model: usedModel,
   });
 }

@@ -73,6 +73,15 @@ function quoteBodyFor(payload, mode) {
   if (mode === "empty") {
     return { status: "qa-local", options: [], message: "No mocked options" };
   }
+  if (mode === "empty-with-callback") {
+    return {
+      status: "paused",
+      options: [],
+      message: "Due to current market conditions, online pricing is temporarily unavailable. Please leave your information and one of our mortgage advisors will contact you.",
+      leadCaptureEnabled: true,
+      callbackEnabled: true,
+    };
+  }
   if (mode === "unavailable-estimate") {
     return {
       status: "qa-local",
@@ -102,6 +111,8 @@ function quoteBodyFor(payload, mode) {
 async function installNetworkBoundary(page, options = {}) {
   const capturedPayloads = [];
   const blockedHosts = [];
+  const sallyRequests = [];
+  const voiceRequests = [];
   const mode = options.mode || "success";
 
   await page.route("**/*", async (route) => {
@@ -127,6 +138,38 @@ async function installNetworkBoundary(page, options = {}) {
       return;
     }
 
+    if (url.hostname === "127.0.0.1" && url.pathname === "/__qa-sally") {
+      const payload = route.request().method() === "POST" ? route.request().postDataJSON() : {};
+      sallyRequests.push(payload);
+      const text = String(payload.userMessage || "").toLowerCase();
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          replyText: text.includes("api update")
+            ? "I added the API-provided detail."
+            : "I can help compare principal-and-interest payment, upfront cost, and lender credit using the scenario on this page.",
+          scenarioUpdates: text.includes("api update")
+            ? { propertyType: "single_family", unsupportedField: "blocked", creditScore: "740" }
+            : {},
+          nextQuestion: "",
+          needsPricingRefresh: false,
+        }),
+      });
+      return;
+    }
+
+    if (url.hostname === "127.0.0.1" && url.pathname === "/__qa-sally-voice") {
+      const payload = route.request().method() === "POST" ? route.request().postDataJSON() : {};
+      voiceRequests.push(payload);
+      await route.fulfill({
+        status: 200,
+        contentType: "audio/mpeg",
+        body: "qa-audio",
+      });
+      return;
+    }
+
     if (url.hostname === "127.0.0.1" || url.hostname === "localhost") {
       await route.continue();
       return;
@@ -136,7 +179,7 @@ async function installNetworkBoundary(page, options = {}) {
     await route.abort("blockedbyclient");
   });
 
-  return { blockedHosts, capturedPayloads };
+  return { blockedHosts, capturedPayloads, sallyRequests, voiceRequests };
 }
 
 async function openApp(page, options = {}) {
@@ -208,6 +251,35 @@ async function openApp(page, options = {}) {
           }),
         },
       });
+      window.URL.createObjectURL = () => "blob:qa-sally-voice";
+      window.URL.revokeObjectURL = () => {};
+      window.Audio = class {
+        constructor() {
+          this.events = {};
+          this.preload = "";
+          this.currentTime = 0;
+        }
+
+        addEventListener(name, handler) {
+          this.events[name] = handler;
+        }
+
+        removeEventListener(name) {
+          delete this.events[name];
+        }
+
+        pause() {}
+
+        load() {}
+
+        removeAttribute() {}
+
+        play() {
+          window.__qaSpoken.push(this.src || "voice-service-audio");
+          window.setTimeout(() => this.events.ended?.(), 0);
+          return Promise.resolve();
+        }
+      };
       window.AudioContext = class {
         constructor() {
           this.destination = {};
@@ -235,25 +307,8 @@ async function openApp(page, options = {}) {
         }
       };
       window.webkitAudioContext = window.AudioContext;
-      window.SpeechSynthesisUtterance = class {
-        constructor(text) {
-          this.text = text;
-          this.onend = null;
-          this.onerror = null;
-        }
-      };
-      Object.defineProperty(window, "speechSynthesis", {
-        configurable: true,
-        value: {
-        speak(utterance) {
-          window.__qaSpoken.push(utterance.text);
-          window.__qaCurrentUtterance = utterance;
-        },
-        cancel() {
-          window.__qaSpeechCancelCount += 1;
-        },
-        },
-      });
+      Object.defineProperty(window, "SpeechSynthesisUtterance", { configurable: true, value: undefined });
+      Object.defineProperty(window, "speechSynthesis", { configurable: true, value: undefined });
     });
   }
   if (options.trackAudio) {
@@ -309,7 +364,7 @@ async function fillPurchaseProperty(page) {
 
 async function fillBorrowerBasics(page) {
   await page.getByRole("button", { name: "Continue" }).click();
-  await page.getByTestId("credit-range").selectOption("740-759");
+  await page.getByTestId("credit-score").fill("750");
   await page.getByTestId("occupancy").selectOption("primary");
   await page.getByTestId("first-time-homebuyer").selectOption("no");
   await page.getByTestId("annual-income").fill("145000");
@@ -322,6 +377,12 @@ async function submitPurchase(page) {
   await expect(page.getByTestId("results-screen")).toBeVisible();
 }
 
+async function submitPurchaseWithoutResults(page) {
+  await fillPurchaseProperty(page);
+  await fillBorrowerBasics(page);
+  await page.getByTestId("submit-scenario").click();
+}
+
 async function fillCashOutRefinance(page) {
   await page.getByRole("button", { name: "Refinance" }).click();
   await page.getByTestId("property-value").fill("650000");
@@ -330,8 +391,9 @@ async function fillCashOutRefinance(page) {
   await page.getByTestId("current-rate").fill("7.125");
   await page.getByTestId("cash-out-amount").fill("50000");
   await page.getByTestId("zip-code").fill("92660");
+  await page.getByTestId("property-type").selectOption("single_family");
   await page.getByRole("button", { name: "Continue" }).click();
-  await page.getByTestId("credit-range").selectOption("760+");
+  await page.getByTestId("credit-score").fill("780");
   await page.getByTestId("occupancy").selectOption("primary");
   await page.getByTestId("annual-income").fill("180000");
 }
@@ -562,7 +624,7 @@ test("unsupported speech recognition keeps typed Sally entry available", async (
 });
 
 test("Sally playback is written first, user-initiated, and one response at a time", async ({ page }) => {
-  await openApp(page, { mockSpeech: true });
+  const { voiceRequests } = await openApp(page, { mockSpeech: true });
 
   await page.getByLabel("Ask Sally").fill("What should I compare?");
   await page.getByRole("button", { name: "Send to Sally" }).click();
@@ -570,16 +632,21 @@ test("Sally playback is written first, user-initiated, and one response at a tim
   expect(await page.evaluate(() => window.__qaSpoken)).toEqual([]);
 
   await page.getByRole("button", { name: "Listen to Sally's response" }).click();
+  await expect.poll(() => voiceRequests.length).toBe(1);
+  expect(voiceRequests[0]).toMatchObject({
+    voiceId: "Joanna",
+    outputFormat: "mp3",
+  });
   expect(await page.evaluate(() => window.__qaSpoken.length)).toBe(1);
-  await expect(page.getByRole("button", { name: "Stop listening to Sally's response" })).toBeVisible();
 
   await page.getByLabel("Ask Sally").fill("Explain lender credits");
   await page.getByRole("button", { name: "Send to Sally" }).click();
   const listenButtons = page.getByRole("button", { name: "Listen to Sally's response" });
   await expect(listenButtons).toHaveCount(2);
   await listenButtons.nth(1).click();
+  await expect.poll(() => voiceRequests.length).toBe(2);
   expect(await page.evaluate(() => window.__qaSpoken.length)).toBe(2);
-  expect(await page.evaluate(() => window.__qaSpeechCancelCount)).toBeGreaterThanOrEqual(2);
+  await expect(page.locator("body")).not.toContainText("SpeechSynthesisUtterance");
 });
 
 test("Sally conversation viewport scrolls internally without growing the page", async ({ page }) => {
@@ -662,6 +729,83 @@ test("Sally purchase and refinance intents advance the funnel without requesting
   expect(capturedPayloads).toEqual([]);
 });
 
+test("Sally extracts a combined purchase scenario before asking the next question", async ({ page }) => {
+  const { capturedPayloads } = await openApp(page, { mockSpeech: true });
+  const combined =
+    "I want to buy a $500,000 single family house in 30004. It's going to be my primary residence. My credit is around 740 and I'm putting 5 percent down. I'm a first-time homebuyer. I make about $9,000 a month.";
+
+  await page.getByLabel("Ask Sally").fill(combined);
+  await page.getByRole("button", { name: "Send to Sally" }).click();
+
+  await expect(page.getByTestId("borrower-basics-step")).toBeVisible();
+  await expect(page.getByTestId("sally-thread")).not.toContainText("What ZIP code");
+  await expect(page.getByTestId("credit-score")).toHaveValue("740");
+  await expect(page.getByTestId("occupancy")).toHaveValue("primary");
+  await expect(page.getByTestId("first-time-homebuyer")).toHaveValue("yes");
+  await expect(page.getByTestId("annual-income")).toHaveValue("108000");
+
+  await page.getByRole("button", { name: "Back" }).click();
+  await expect(page.getByTestId("home-price")).toHaveValue("500000");
+  await expect(page.getByTestId("down-payment-mode")).toHaveValue("percent");
+  await expect(page.getByTestId("down-payment")).toHaveValue("5");
+  await expect(page.getByTestId("zip-code")).toHaveValue("30004");
+  await expect(page.getByTestId("property-type")).toHaveValue("single_family");
+
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByTestId("submit-scenario").click();
+  await expect(page.getByTestId("results-screen")).toBeVisible();
+  expect(capturedPayloads[0]).toMatchObject({
+    purchasePrice: 500000,
+    loanAmount: 475000,
+    downPayment: 25000,
+    ltv: 95,
+    creditScore: 740,
+    zipCode: "30004",
+    occupancy: "primary",
+    propertyType: "single_family",
+  });
+});
+
+test("dictated transcript preserves the complete text and reaches the same Sally pipeline after Send", async ({ page }) => {
+  const { capturedPayloads } = await openApp(page, { mockSpeech: true });
+  const combined =
+    "I want to buy a $500,000 single family house in 30004. It's going to be my primary residence. My credit is around 740 and I'm putting 5 percent down. I'm a first-time homebuyer. I make about $9,000 a month.";
+
+  await page.getByRole("button", { name: "Dictate a question" }).click();
+  await page.evaluate((text) => window.__qaActiveRecognition.emitTranscript(text), combined);
+  await page.getByRole("button", { name: "Finish" }).click();
+  await expect(page.getByLabel("Ask Sally")).toHaveValue(combined);
+  await page.getByRole("button", { name: "Send to Sally" }).click();
+
+  await expect(page.getByTestId("borrower-basics-step")).toBeVisible();
+  await expect(page.getByTestId("credit-score")).toHaveValue("740");
+  await expect(page.getByTestId("annual-income")).toHaveValue("108000");
+
+  await page.getByTestId("submit-scenario").click();
+  await expect(page.getByTestId("results-screen")).toBeVisible();
+  expect(capturedPayloads[0]).toMatchObject({
+    purchasePrice: 500000,
+    loanAmount: 475000,
+    downPayment: 25000,
+    creditScore: 740,
+  });
+});
+
+test("Sally API scenario updates are allowlisted before mutating the active scenario", async ({ page }) => {
+  const { sallyRequests } = await openApp(page, { mockSpeech: true });
+
+  await page.getByLabel("Ask Sally").fill("api update");
+  await page.getByRole("button", { name: "Send to Sally" }).click();
+
+  await expect(page.getByTestId("purchase-property-step")).toBeVisible();
+  await expect(page.getByTestId("property-type")).toHaveValue("single_family");
+  await page.getByRole("button", { name: "Continue" }).click();
+  await expect(page.getByTestId("credit-score")).toHaveValue("740");
+  expect(sallyRequests).toHaveLength(1);
+  expect(sallyRequests[0].currentScenario).toHaveProperty("pricingPayload");
+  await expect(page.locator("body")).not.toContainText("unsupportedField");
+});
+
 test("ambiguous Sally chat does not mutate the borrower path", async ({ page }) => {
   await openApp(page);
 
@@ -705,6 +849,20 @@ test("validation and provider error states do not invent rates", async ({ page }
   await errorPage.getByTestId("submit-scenario").click();
   await expect(errorPage.getByTestId("pricing-error")).toContainText("No rates are shown");
   await expect(errorPage.getByTestId("results-screen")).toHaveCount(0);
+});
+
+test("advisor follow-up is shown when the pricing engine signals leadCaptureEnabled/callbackEnabled", async ({ page }) => {
+  await openApp(page, { mode: "empty-with-callback" });
+  await submitPurchaseWithoutResults(page);
+  await expect(page.getByTestId("empty-results")).toBeVisible();
+  await expect(page.getByTestId("advisor-follow-up-available")).toBeVisible();
+});
+
+test("advisor follow-up does not appear when the pricing engine does not signal it", async ({ page }) => {
+  await openApp(page, { mode: "empty" });
+  await submitPurchaseWithoutResults(page);
+  await expect(page.getByTestId("empty-results")).toBeVisible();
+  await expect(page.getByTestId("advisor-follow-up-available")).toHaveCount(0);
 });
 
 test("Sally remains compact and text-first with scenario context", async ({ page }) => {

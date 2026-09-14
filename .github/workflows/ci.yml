@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main, fix/restore-sally-behavior-2026-09-01]
+
+# No secrets, credentials, or private-repo access are used anywhere in this
+# workflow. All QA below is self-contained (offline unit checks + Playwright
+# tests that mock every backend call, including the HLOA Lead Engine, via
+# page.route interception) — none of it talks to a real hloa-platform
+# service, a database, or any external endpoint.
+jobs:
+  quality:
+    name: Lint, build, and QA
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
+
+      - name: QA — scenarios
+        run: npm run qa:scenarios
+
+      - name: QA — Sally
+        run: npm run qa:sally
+
+      - name: QA — Sally reply guardrail
+        run: npm run qa:sally-guardrail
+
+      - name: QA — HLOA platform integration (offline unit checks)
+        run: npm run qa:platform
+
+      - name: Install Playwright (Chromium only)
+        run: npx playwright install --with-deps chromium
+
+      - name: QA — browser (Playwright, all backends mocked)
+        run: npm run qa:browser
+        timeout-minutes: 10

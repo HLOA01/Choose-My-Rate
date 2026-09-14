@@ -2,6 +2,23 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
 import { askSallyApi, hasSallyApi } from "./sallyApi";
 import { hasPricingApi, quotePricing } from "./pricingApi";
+import { mapCreditScoreToRange, processBorrowerMessageForFunnel } from "./SallyBrain";
+import { useSallyVoice } from "./hooks/useSallyVoice";
+import { useHloaSession } from "./platform/useHloaSession";
+import { buildFunnelEventPayload, mapScenarioKind } from "./platform/hloaPlatform";
+
+// Invisible status node: never changes the layout or the approved design.
+const SR_ONLY_STYLE = {
+  position: "absolute",
+  width: "1px",
+  height: "1px",
+  padding: 0,
+  margin: "-1px",
+  overflow: "hidden",
+  clip: "rect(0 0 0 0)",
+  whiteSpace: "nowrap",
+  border: 0,
+};
 
 const APPLICATION_URL =
   import.meta.env.VITE_APPLICATION_URL ||
@@ -23,18 +40,43 @@ const INITIAL_SCENARIO = {
   borrowerPath: "purchase",
   homePrice: "",
   downPayment: "",
+  downPaymentAmount: "",
+  downPaymentPercent: "",
+  downPaymentInputMode: "dollars",
   propertyValue: "",
   currentMortgageBalance: "",
   refinanceGoal: "lower_payment",
   currentInterestRate: "",
   requestedCashOut: "",
-  propertyType: "single_family",
-  firstTimeHomebuyer: "no",
-  occupancy: "primary",
-  creditRange: "740-759",
+  propertyType: "",
+  firstTimeHomebuyer: "unknown",
+  occupancy: "",
+  creditScore: "",
+  creditRange: "",
   zipCode: "",
   annualIncome: "",
 };
+
+const SCENARIO_UPDATE_FIELDS = new Set([
+  "borrowerPath",
+  "homePrice",
+  "downPayment",
+  "downPaymentAmount",
+  "downPaymentPercent",
+  "downPaymentInputMode",
+  "propertyValue",
+  "currentMortgageBalance",
+  "refinanceGoal",
+  "currentInterestRate",
+  "requestedCashOut",
+  "propertyType",
+  "firstTimeHomebuyer",
+  "occupancy",
+  "creditScore",
+  "creditRange",
+  "zipCode",
+  "annualIncome",
+]);
 
 const CLOSING_COST_DISCLOSURE_VERSION = "closing-cost-prelim-v1";
 const COST_DISCLOSURE =
@@ -53,6 +95,56 @@ function cleanNumber(value) {
 function toNumber(value) {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : 0;
+}
+
+function normalizeScenarioDownPayment(scenario, changedField = "") {
+  const next = { ...scenario };
+  const homePrice = toNumber(next.homePrice);
+  const amount = toNumber(next.downPaymentAmount || next.downPayment);
+  const percent = toNumber(next.downPaymentPercent);
+
+  if (next.borrowerPath !== "purchase") return next;
+
+  if (changedField === "downPaymentPercent" && percent > 0) {
+    next.downPaymentInputMode = "percent";
+  }
+  if (changedField === "downPaymentAmount" || changedField === "downPayment") {
+    next.downPaymentInputMode = "dollars";
+  }
+
+  if (homePrice > 0 && percent > 0 && next.downPaymentInputMode === "percent") {
+    next.downPaymentAmount = String(Math.round((homePrice * percent) / 100));
+    next.downPayment = next.downPaymentAmount;
+    return next;
+  }
+
+  if (homePrice > 0 && amount > 0) {
+    next.downPaymentAmount = String(Math.round(amount));
+    next.downPayment = next.downPaymentAmount;
+    next.downPaymentPercent = String(Math.round((amount / homePrice) * 1000) / 10);
+    return next;
+  }
+
+  if (amount > 0) {
+    next.downPaymentAmount = String(Math.round(amount));
+    next.downPayment = next.downPaymentAmount;
+  }
+
+  return next;
+}
+
+function getDownPaymentAmount(scenario) {
+  return toNumber(scenario.downPaymentAmount || scenario.downPayment);
+}
+
+function getPricingCreditScore(scenario) {
+  const exactScore = toNumber(scenario.creditScore);
+  if (exactScore >= 500 && exactScore <= 850) return exactScore;
+  return CREDIT_RANGES[scenario.creditRange] || null;
+}
+
+function normalizeCreditRange(score) {
+  return mapCreditScoreToRange(score) || "";
 }
 
 function formatCurrency(value) {
@@ -79,7 +171,7 @@ function normalizeLoanType(value) {
 
 function getLoanAmount(scenario) {
   if (scenario.borrowerPath === "purchase") {
-    return Math.max(toNumber(scenario.homePrice) - toNumber(scenario.downPayment), 0);
+    return Math.max(toNumber(scenario.homePrice) - getDownPaymentAmount(scenario), 0);
   }
   if (scenario.refinanceGoal === "cash_out") {
     return Math.max(toNumber(scenario.currentMortgageBalance) + toNumber(scenario.requestedCashOut), 0);
@@ -91,13 +183,13 @@ function buildPricingPayload(scenario, loanTypePreference = "conventional") {
   const purchasePrice =
     scenario.borrowerPath === "purchase" ? toNumber(scenario.homePrice) : toNumber(scenario.propertyValue);
   const loanAmount = getLoanAmount(scenario);
-  const creditScore = CREDIT_RANGES[scenario.creditRange] || 740;
+  const creditScore = getPricingCreditScore(scenario);
 
   return {
     purchasePrice,
     loanAmount,
     creditScore,
-    occupancy: scenario.occupancy || "primary",
+    occupancy: scenario.occupancy,
     loanPurpose:
       scenario.borrowerPath === "purchase"
         ? "purchase"
@@ -105,9 +197,9 @@ function buildPricingPayload(scenario, loanTypePreference = "conventional") {
           ? "cash_out"
           : "refinance",
     loanTypePreference: normalizeLoanType(loanTypePreference),
-    propertyType: scenario.propertyType || "single_family",
+    propertyType: scenario.propertyType,
     zipCode: scenario.zipCode || "",
-    downPayment: scenario.borrowerPath === "purchase" ? toNumber(scenario.downPayment) || null : null,
+    downPayment: scenario.borrowerPath === "purchase" ? getDownPaymentAmount(scenario) || null : null,
     ltv: purchasePrice && loanAmount ? Number(((loanAmount / purchasePrice) * 100).toFixed(3)) : null,
     language: "en",
   };
@@ -117,7 +209,7 @@ function getValidationErrors(scenario) {
   const errors = [];
   if (scenario.borrowerPath === "purchase") {
     if (!toNumber(scenario.homePrice)) errors.push("Home price is required.");
-    if (!toNumber(scenario.downPayment)) errors.push("Down payment is required.");
+    if (!getDownPaymentAmount(scenario)) errors.push("Down payment is required.");
   } else {
     if (!toNumber(scenario.propertyValue)) errors.push("Estimated property value is required.");
     if (!toNumber(scenario.currentMortgageBalance)) errors.push("Current mortgage balance is required.");
@@ -128,7 +220,7 @@ function getValidationErrors(scenario) {
   }
   if (!scenario.propertyType) errors.push("Property type is required.");
   if (!scenario.occupancy) errors.push("Occupancy is required.");
-  if (!scenario.creditRange) errors.push("Credit range is required.");
+  if (!getPricingCreditScore(scenario)) errors.push("Estimated credit score is required.");
   if (!/^\d{5}$/.test(String(scenario.zipCode || ""))) errors.push("Enter a valid 5-digit ZIP code.");
   if (!toNumber(scenario.annualIncome)) errors.push("Estimated gross annual household income is required.");
   return errors;
@@ -255,7 +347,7 @@ function formatRefinanceGoal(value) {
 
 function getDownPaymentPercent(scenario) {
   const homePrice = toNumber(scenario.homePrice);
-  const downPayment = toNumber(scenario.downPayment);
+  const downPayment = getDownPaymentAmount(scenario);
   if (!homePrice || !downPayment) return "";
   return `${Math.round((downPayment / homePrice) * 1000) / 10}% down`;
 }
@@ -336,7 +428,8 @@ function nextMissingPrompt(nextScenario) {
   if (nextScenario.borrowerPath === "purchase") {
     if (!nextScenario.zipCode) return { testId: "zip-code", text: "What ZIP code is the home in?" };
     if (!toNumber(nextScenario.homePrice)) return { testId: "home-price", text: "What purchase price should we use?" };
-    if (!toNumber(nextScenario.downPayment)) return { testId: "down-payment", text: "How much do you plan to put down?" };
+    if (!getDownPaymentAmount(nextScenario)) return { testId: "down-payment", text: "How much do you plan to put down?" };
+    if (!nextScenario.propertyType) return { testId: "property-type", text: "Is it a single-family home, condo, townhome, or 2-4 unit property?" };
   } else {
     if (!nextScenario.zipCode) return { testId: "zip-code", text: "What ZIP code is the property in?" };
     if (!toNumber(nextScenario.propertyValue)) return { testId: "property-value", text: "What is the estimated property value?" };
@@ -345,15 +438,10 @@ function nextMissingPrompt(nextScenario) {
     }
     if (!toNumber(nextScenario.currentInterestRate)) return { testId: "current-rate", text: "What is your current interest rate?" };
   }
+  if (!getPricingCreditScore(nextScenario)) return { testId: "credit-score", text: "About where is your credit score right now?" };
+  if (!nextScenario.occupancy) return { testId: "occupancy", text: "Will this be your primary home, second home, or an investment property?" };
   if (!toNumber(nextScenario.annualIncome)) return { testId: "annual-income", text: "What is your estimated gross annual household income?" };
   return { testId: "submit-scenario", text: "You can review your details and request live rates when you are ready." };
-}
-
-function detectMortgageIntent(text) {
-  const normalized = text.toLowerCase();
-  if (/\b(refinance|refi|lower my mortgage payment|lower payment)\b/.test(normalized)) return "refinance";
-  if (/\b(buy|purchase|purchasing)\b/.test(normalized) && /\b(home|house|property)\b/.test(normalized)) return "purchase";
-  return null;
 }
 
 export default function SimplifiedBorrowerFunnel() {
@@ -379,6 +467,9 @@ export default function SimplifiedBorrowerFunnel() {
   const [pendingFocus, setPendingFocus] = useState("");
   const touchStartRef = useRef(null);
   const abortRef = useRef(null);
+  const hloa = useHloaSession();
+  const lastPricedSignatureRef = useRef("");
+  const lastRateEmitRef = useRef({ index: -1, at: 0 });
   const recognitionRef = useRef(null);
   const mediaStreamRef = useRef(null);
   const audioContextRef = useRef(null);
@@ -393,14 +484,27 @@ export default function SimplifiedBorrowerFunnel() {
   const previousOption = selectedIndex > 0 ? options[selectedIndex - 1] : null;
   const nextOption = selectedIndex < options.length - 1 ? options[selectedIndex + 1] : null;
   const isResults = pricingState === "ready" && options.length > 0;
+  const showAdvisorFollowUp =
+    pricingState === "empty" && Boolean(quote?.leadCaptureEnabled || quote?.callbackEnabled);
   const selectedBorrowerQuote = getBorrowerQuote(selectedOption);
   const selectedRateAdjustment = formatRateAdjustment(selectedOption);
   const closingCostEquation = getClosingCostEquation(selectedOption);
   const canDictate =
     typeof window !== "undefined" && Boolean(window.SpeechRecognition || window.webkitSpeechRecognition);
-  const canSpeak = typeof window !== "undefined" && Boolean(window.speechSynthesis && window.SpeechSynthesisUtterance);
+  const {
+    speak: speakSallyVoice,
+    stop: stopSallyVoice,
+    isSpeaking: sallyVoiceSpeaking,
+    isLoading: sallyVoiceLoading,
+    voiceAvailable,
+  } = useSallyVoice();
+  const canSpeak = voiceAvailable;
+  const finalTranscriptRef = useRef("");
+  const interimTranscriptRef = useRef("");
+  const intentionallyListeningRef = useRef(false);
 
   const stopDictationResources = () => {
+    intentionallyListeningRef.current = false;
     if (animationFrameRef.current) {
       window.cancelAnimationFrame(animationFrameRef.current);
       animationFrameRef.current = null;
@@ -419,14 +523,14 @@ export default function SimplifiedBorrowerFunnel() {
   };
 
   const stopPlayback = () => {
-    window.speechSynthesis?.cancel?.();
+    stopSallyVoice();
     setPlayingMessageId("");
   };
 
   useEffect(() => () => {
     stopDictationResources();
-    window.speechSynthesis?.cancel?.();
-  }, []);
+    stopSallyVoice();
+  }, [stopSallyVoice]);
 
   useEffect(() => {
     if (!pendingFocus) return;
@@ -463,27 +567,46 @@ export default function SimplifiedBorrowerFunnel() {
     ]);
   };
 
-  const updateScenario = (field, value) => {
+  const resetPricingView = () => {
     setQuote(null);
     setComparison(null);
     setPricingState("idle");
     setPricingMessage("");
     setHandoffMessage("");
-    setScenario((current) => ({
-      ...current,
-      [field]: [
+  };
+
+  const updateScenario = (field, value) => {
+    resetPricingView();
+    setScenario((current) => {
+      const numericFields = [
         "homePrice",
         "downPayment",
+        "downPaymentAmount",
+        "downPaymentPercent",
         "propertyValue",
         "currentMortgageBalance",
         "currentInterestRate",
         "requestedCashOut",
         "zipCode",
+        "creditScore",
         "annualIncome",
-      ].includes(field)
-        ? cleanNumber(value)
-        : value,
-    }));
+      ];
+      const cleanedValue = numericFields.includes(field) ? cleanNumber(value) : value;
+      let next = { ...current, [field]: cleanedValue };
+
+      if (field === "creditScore") {
+        next.creditRange = normalizeCreditRange(cleanedValue);
+      }
+      if (field === "creditRange") {
+        next.creditScore = "";
+      }
+
+      if (["homePrice", "downPayment", "downPaymentAmount", "downPaymentPercent", "downPaymentInputMode"].includes(field)) {
+        next = normalizeScenarioDownPayment(next, field);
+      }
+
+      return next;
+    });
   };
 
   const choosePath = (borrowerPath) => {
@@ -520,6 +643,14 @@ export default function SimplifiedBorrowerFunnel() {
     setSelectedOptionId(optionKey(option));
     playTick();
     window.navigator.vibrate?.(12);
+    // Emit rate.selected at a genuine selection change, debounced so a fast dial
+    // spin is one event. Non-blocking; never affects the selection.
+    const index = options.findIndex((entry) => optionKey(entry) === optionKey(option));
+    const now = Date.now();
+    if (index !== lastRateEmitRef.current.index || now - lastRateEmitRef.current.at > 800) {
+      lastRateEmitRef.current = { index, at: now };
+      hloa.emit("rate.selected", index >= 0 ? { optionIndex: index } : {});
+    }
   };
 
   const moveRate = (direction) => {
@@ -549,6 +680,22 @@ export default function SimplifiedBorrowerFunnel() {
     setPricingMessage("Looking up live rates...");
     setQuote(null);
 
+    // Platform identity + telemetry. Runs alongside pricing; a platform failure
+    // never blocks or alters the rate request. Pricing is the borrower's action;
+    // identity/events are best-effort audit + follow-up signal.
+    const funnelPayload = buildFunnelEventPayload(pricingPayload);
+    const scenarioSignature = JSON.stringify(funnelPayload);
+    const isReprice =
+      Boolean(lastPricedSignatureRef.current) && lastPricedSignatureRef.current !== scenarioSignature;
+    lastPricedSignatureRef.current = scenarioSignature;
+    void hloa
+      .ensureIdentity({ kind: mapScenarioKind(scenario) })
+      .then(() => {
+        hloa.emit("rates.requested", funnelPayload);
+        if (isReprice) hloa.emit("scenario.updated", funnelPayload);
+      })
+      .catch(() => {});
+
     try {
       const response = await quotePricing(pricingPayload, { signal: controller.signal });
       const responseOptions = Array.isArray(response?.options) ? response.options : [];
@@ -557,12 +704,14 @@ export default function SimplifiedBorrowerFunnel() {
         setPricingState("empty");
         setPricingMessage(response?.message || "No live rate options are available for this scenario.");
         setSelectedOptionId("");
+        hloa.emit("rates.returned", { status: "empty", optionCount: 0 });
         return;
       }
       const parOption = pickParOption(responseOptions);
       setSelectedOptionId(optionKey(parOption));
       setPricingState("ready");
       setPricingMessage("Your live rate options are ready.");
+      hloa.emit("rates.returned", { status: "ready", optionCount: responseOptions.length });
     } catch (error) {
       if (error.name === "AbortError") return;
       setPricingState("error");
@@ -619,6 +768,7 @@ export default function SimplifiedBorrowerFunnel() {
       disclosureVersionAccepted: CLOSING_COST_DISCLOSURE_VERSION,
     };
     window.sessionStorage?.setItem("chooseMyRate.applicationHandoff.v1", JSON.stringify(handoff));
+    hloa.emit("application.started", {});
     if (!APPLICATION_URL) {
       setHandoffMessage("Application handoff is not configured yet. Your selected rate stays here.");
       return;
@@ -626,53 +776,113 @@ export default function SimplifiedBorrowerFunnel() {
     window.location.assign(APPLICATION_URL);
   };
 
-  const askSally = async () => {
-    const userText = sallyInput.trim();
+  const sanitizeScenarioUpdates = (updates, protectedScenario) => {
+    if (!updates || typeof updates !== "object" || Array.isArray(updates)) return {};
+    const nextUpdates = {};
+    const numericFields = new Set([
+      "homePrice",
+      "downPayment",
+      "downPaymentAmount",
+      "downPaymentPercent",
+      "propertyValue",
+      "currentMortgageBalance",
+      "currentInterestRate",
+      "requestedCashOut",
+      "zipCode",
+      "creditScore",
+      "annualIncome",
+    ]);
+
+    for (const [field, rawValue] of Object.entries(updates)) {
+      if (!SCENARIO_UPDATE_FIELDS.has(field)) continue;
+      const value = numericFields.has(field) ? cleanNumber(rawValue) : String(rawValue || "");
+      if (!value) continue;
+
+      const currentValue = String(protectedScenario[field] || "");
+      if (currentValue && currentValue !== value) continue;
+
+      if (field === "borrowerPath" && !["purchase", "refinance"].includes(value)) continue;
+      if (field === "refinanceGoal" && !["lower_payment", "shorter_term", "cash_out", "debt_consolidation"].includes(value)) continue;
+      if (field === "propertyType" && !["single_family", "condo", "townhome", "multi_unit"].includes(value)) continue;
+      if (field === "firstTimeHomebuyer" && !["yes", "no", "not_sure", "unknown"].includes(value)) continue;
+      if (field === "occupancy" && !["primary", "second_home", "investment"].includes(value)) continue;
+      if (field === "downPaymentInputMode" && !["dollars", "percent"].includes(value)) continue;
+      if (field === "zipCode" && !/^\d{5}$/.test(value)) continue;
+      if (field === "creditScore" && (toNumber(value) < 500 || toNumber(value) > 850)) continue;
+      if (field === "creditRange" && !CREDIT_RANGES[value]) continue;
+
+      nextUpdates[field] = value;
+    }
+
+    if (nextUpdates.creditScore && !nextUpdates.creditRange) {
+      nextUpdates.creditRange = normalizeCreditRange(nextUpdates.creditScore);
+    }
+
+    return nextUpdates;
+  };
+
+  const moveToPrompt = (prompt) => {
+    setStep(prompt.testId === "annual-income" || prompt.testId === "submit-scenario" || prompt.testId === "credit-score" || prompt.testId === "occupancy" ? 2 : 1);
+    setPendingFocus(prompt.testId);
+  };
+
+  const handleBorrowerMessage = async (rawText) => {
+    const userText = String(rawText || "").trim();
     if (!userText || sallyThinking) return;
     setSallyInput("");
     addBorrowerMessage(userText);
     stopPlayback();
-
-    const intent = detectMortgageIntent(userText);
-    if (intent) {
-      const nextScenario = { ...scenario, borrowerPath: intent };
-      const nextPrompt = nextMissingPrompt(nextScenario);
-      setScenario(nextScenario);
-      setStep(nextPrompt.testId === "annual-income" || nextPrompt.testId === "submit-scenario" ? 2 : 1);
-      setPendingFocus(nextPrompt.testId);
-      addSallyMessage(
-        intent === "purchase"
-          ? `Great--let's look at purchase options. ${nextPrompt.text}`
-          : `Great--let's look at refinance options. ${nextPrompt.text}`,
-      );
-      return;
-    }
-
+    resetPricingView();
     setSallyThinking(true);
 
-    if (!hasSallyApi()) {
-      addSallyMessage("I can help compare principal-and-interest payment, upfront cost, and lender credit using the scenario on this page.");
-      setSallyThinking(false);
-      return;
-    }
+    const localResult = processBorrowerMessageForFunnel(userText, scenario);
+    let nextScenario = normalizeScenarioDownPayment(localResult.scenario);
+    let responseText = localResult.message;
+    let hasScenarioChange = Boolean(localResult.intentDetected) || Object.keys(localResult.updates || {}).some((field) => {
+      if (!SCENARIO_UPDATE_FIELDS.has(field)) return false;
+      return String(localResult.updates[field] || "") !== String(scenario[field] || "");
+    });
 
     try {
-      const response = await askSallyApi({
-        userMessage: userText,
-        currentScenario: { ...scenario, pricingPayload, selectedRate: selectedOption || null },
-        conversationHistory: sallyMessages.map((message) => ({
-          role: message.role === "assistant" ? "assistant" : "user",
-          content: message.text,
-        })).concat({ role: "user", content: userText }),
-        pricingOptions: options,
-        localResult: null,
-      });
-      addSallyMessage(response.replyText || "I can help explain the option you selected.");
+      if (hasSallyApi()) {
+        const response = await askSallyApi({
+          userMessage: userText,
+          currentScenario: {
+            ...nextScenario,
+            pricingPayload: buildPricingPayload(nextScenario),
+            selectedRate: selectedOption || null,
+          },
+          conversationHistory: sallyMessages.map((message) => ({
+            role: message.role === "assistant" ? "assistant" : "user",
+            content: message.text,
+          })).concat({ role: "user", content: userText }),
+          pricingOptions: options,
+          localResult,
+        });
+        const safeUpdates = sanitizeScenarioUpdates(response.scenarioUpdates, nextScenario);
+        hasScenarioChange = hasScenarioChange || Object.keys(safeUpdates).length > 0;
+        nextScenario = normalizeScenarioDownPayment({ ...nextScenario, ...safeUpdates });
+        responseText = response.replyText || responseText;
+      }
     } catch {
-      addSallyMessage("Sally is temporarily unavailable. Your rate options and application step remain available.");
+      responseText = localResult.message || "I captured what I could locally. Sally's online help is temporarily unavailable.";
     } finally {
+      const nextPrompt = nextMissingPrompt(nextScenario);
+      if (hasScenarioChange) {
+        setScenario(nextScenario);
+        moveToPrompt(nextPrompt);
+      }
+      addSallyMessage(
+        !hasScenarioChange || responseText.includes(nextPrompt.text)
+          ? responseText
+          : `${responseText} ${nextPrompt.text}`.trim(),
+      );
       setSallyThinking(false);
     }
+  };
+
+  const askSally = () => {
+    handleBorrowerMessage(sallyInput);
   };
 
   const startWaveform = (stream) => {
@@ -710,6 +920,9 @@ export default function SimplifiedBorrowerFunnel() {
     }
 
     stopDictationResources();
+    intentionallyListeningRef.current = true;
+    finalTranscriptRef.current = "";
+    interimTranscriptRef.current = "";
     setDictationState("listening");
     setDictationTranscript("");
     setDictationMessage("");
@@ -729,20 +942,41 @@ export default function SimplifiedBorrowerFunnel() {
     recognitionRef.current = recognition;
     recognition.lang = "en-US";
     recognition.interimResults = true;
+    recognition.continuous = true;
     recognition.onresult = (event) => {
-      const transcript = Array.from(event.results || [])
-        .map((result) => result?.[0]?.transcript || "")
-        .join(" ")
-        .trim();
-      setDictationTranscript(transcript);
+      let interim = "";
+      for (let index = event.resultIndex || 0; index < (event.results?.length || 0); index += 1) {
+        const result = event.results[index];
+        const transcript = String(result?.[0]?.transcript || "").trim();
+        if (!transcript) continue;
+        if (result.isFinal) {
+          const currentFinal = finalTranscriptRef.current;
+          if (!currentFinal.toLowerCase().endsWith(transcript.toLowerCase())) {
+            finalTranscriptRef.current = `${currentFinal} ${transcript}`.trim();
+          }
+        } else {
+          interim = transcript;
+        }
+      }
+      interimTranscriptRef.current = interim;
+      setDictationTranscript(`${finalTranscriptRef.current} ${interim}`.trim());
     };
     recognition.onerror = () => {
+      intentionallyListeningRef.current = false;
       setDictationMessage("Dictation stopped. You can type your question or try the microphone again.");
       setDictationState("idle");
       stopDictationResources();
     };
     recognition.onend = () => {
-      if (dictationState === "listening") {
+      if (intentionallyListeningRef.current) {
+        try {
+          recognition.start();
+          return;
+        } catch {
+          intentionallyListeningRef.current = false;
+        }
+      }
+      if (finalTranscriptRef.current || interimTranscriptRef.current) {
         setDictationState("reviewing");
       }
     };
@@ -750,13 +984,16 @@ export default function SimplifiedBorrowerFunnel() {
   };
 
   const cancelDictation = () => {
+    intentionallyListeningRef.current = false;
     setDictationTranscript("");
     setDictationState("idle");
     stopDictationResources();
   };
 
   const finishDictation = () => {
-    setSallyInput(dictationTranscript.trim());
+    const transcript = `${finalTranscriptRef.current} ${interimTranscriptRef.current}`.trim() || dictationTranscript.trim();
+    intentionallyListeningRef.current = false;
+    setSallyInput(transcript);
     setDictationState("idle");
     stopDictationResources();
   };
@@ -775,25 +1012,40 @@ export default function SimplifiedBorrowerFunnel() {
       stopPlayback();
       return;
     }
-    window.speechSynthesis.cancel();
-    const utterance = new window.SpeechSynthesisUtterance(message.text);
-    utterance.onend = () => setPlayingMessageId("");
-    utterance.onerror = () => setPlayingMessageId("");
-    try {
-      setPlayingMessageId(message.id);
-      window.speechSynthesis.speak(utterance);
-    } catch {
+    stopSallyVoice();
+    setPlayingMessageId(message.id);
+    speakSallyVoice(message.text, { auto: false }).catch(() => {
       setPlayingMessageId("");
-    }
+    }).finally(() => {
+      setPlayingMessageId("");
+    });
   };
 
   const propertyGroup = scenario.borrowerPath === "purchase" ? (
     <>
       <Field label="Home price"><input data-testid="home-price" value={scenario.homePrice} onChange={(event) => updateScenario("homePrice", event.target.value)} /></Field>
-      <Field label="Down payment"><input data-testid="down-payment" value={scenario.downPayment} onChange={(event) => updateScenario("downPayment", event.target.value)} /></Field>
+      <Field label="Down payment">
+        <div className="simple-down-payment-control">
+          <input
+            data-testid="down-payment"
+            value={scenario.downPaymentInputMode === "percent" ? scenario.downPaymentPercent : scenario.downPaymentAmount}
+            onChange={(event) => updateScenario(scenario.downPaymentInputMode === "percent" ? "downPaymentPercent" : "downPaymentAmount", event.target.value)}
+          />
+          <select
+            aria-label="Down payment input mode"
+            data-testid="down-payment-mode"
+            value={scenario.downPaymentInputMode}
+            onChange={(event) => updateScenario("downPaymentInputMode", event.target.value)}
+          >
+            <option value="dollars">$</option>
+            <option value="percent">%</option>
+          </select>
+        </div>
+      </Field>
       <Field label="ZIP code"><input data-testid="zip-code" value={scenario.zipCode} maxLength={5} onChange={(event) => updateScenario("zipCode", event.target.value)} /></Field>
       <Field label="Property type">
         <select data-testid="property-type" value={scenario.propertyType} onChange={(event) => updateScenario("propertyType", event.target.value)}>
+          <option value="">Select property type</option>
           <option value="single_family">Single family</option>
           <option value="condo">Condo</option>
           <option value="townhome">Townhome</option>
@@ -818,18 +1070,32 @@ export default function SimplifiedBorrowerFunnel() {
         <Field label="Requested cash-out amount"><input data-testid="cash-out-amount" value={scenario.requestedCashOut} onChange={(event) => updateScenario("requestedCashOut", event.target.value)} /></Field>
       ) : null}
       <Field label="ZIP code"><input data-testid="zip-code" value={scenario.zipCode} maxLength={5} onChange={(event) => updateScenario("zipCode", event.target.value)} /></Field>
+      <Field label="Property type">
+        <select data-testid="property-type" value={scenario.propertyType} onChange={(event) => updateScenario("propertyType", event.target.value)}>
+          <option value="">Select property type</option>
+          <option value="single_family">Single family</option>
+          <option value="condo">Condo</option>
+          <option value="townhome">Townhome</option>
+          <option value="multi_unit">2-4 unit</option>
+        </select>
+      </Field>
     </>
   );
 
   const borrowerBasics = (
     <>
-      <Field label="Credit range">
-        <select data-testid="credit-range" value={scenario.creditRange} onChange={(event) => updateScenario("creditRange", event.target.value)}>
-          {Object.keys(CREDIT_RANGES).map((range) => <option key={range} value={range}>{range}</option>)}
-        </select>
+      <Field label="Estimated credit score">
+        <input
+          data-testid="credit-score"
+          value={scenario.creditScore}
+          inputMode="numeric"
+          maxLength={3}
+          onChange={(event) => updateScenario("creditScore", event.target.value)}
+        />
       </Field>
       <Field label="Occupancy / property use">
         <select data-testid="occupancy" value={scenario.occupancy} onChange={(event) => updateScenario("occupancy", event.target.value)}>
+          <option value="">Select occupancy</option>
           <option value="primary">Primary residence</option>
           <option value="second_home">Second home</option>
           <option value="investment">Investment property</option>
@@ -838,6 +1104,7 @@ export default function SimplifiedBorrowerFunnel() {
       {scenario.borrowerPath === "purchase" ? (
         <Field label="First-time homebuyer">
           <select data-testid="first-time-homebuyer" value={scenario.firstTimeHomebuyer} onChange={(event) => updateScenario("firstTimeHomebuyer", event.target.value)}>
+            <option value="unknown">Not answered</option>
             <option value="yes">Yes</option>
             <option value="no">No</option>
             <option value="not_sure">Not sure</option>
@@ -850,6 +1117,11 @@ export default function SimplifiedBorrowerFunnel() {
 
   return (
     <main className="simple-cmr-page revised" data-testid="app-shell">
+      <span style={SR_ONLY_STYLE} aria-live="polite" data-testid="platform-sync-status">
+        {hloa.degraded
+          ? "We could not save your session yet. We will finish shortly and it does not affect your rates."
+          : ""}
+      </span>
       <header className="simple-header" data-testid="header-composer">
         <div className="simple-brand-block">
           <div className="simple-brand-title">CHOOSE MY RATE</div>
@@ -920,11 +1192,11 @@ export default function SimplifiedBorrowerFunnel() {
                 <p>{message.text}</p>
                 {message.role === "assistant" ? (
                   <IconButton
-                    label={playingMessageId === message.id ? "Stop listening to Sally's response" : "Listen to Sally's response"}
+                    label={playingMessageId === message.id && (sallyVoiceSpeaking || sallyVoiceLoading) ? "Stop listening to Sally's response" : "Listen to Sally's response"}
                     onClick={() => playSallyResponse(message)}
-                    disabled={!canSpeak}
+                    disabled={!canSpeak || (sallyVoiceLoading && playingMessageId !== message.id)}
                   >
-                    {playingMessageId === message.id ? <StopIcon /> : <SpeakerIcon muted={false} />}
+                    {playingMessageId === message.id && (sallyVoiceSpeaking || sallyVoiceLoading) ? <StopIcon /> : <SpeakerIcon muted={false} />}
                   </IconButton>
                 ) : null}
               </article>
@@ -982,7 +1254,16 @@ export default function SimplifiedBorrowerFunnel() {
               <div className="simple-loading-bar" />
             </div>
           ) : null}
-          {pricingState === "empty" ? <div className="simple-empty" data-testid="empty-results">{pricingMessage}</div> : null}
+          {pricingState === "empty" ? (
+            <div className="simple-empty" data-testid="empty-results">
+              <p>{pricingMessage}</p>
+              {showAdvisorFollowUp ? (
+                <p data-testid="advisor-follow-up-available">
+                  An HLOA mortgage advisor follow-up is available for this scenario.
+                </p>
+              ) : null}
+            </div>
+          ) : null}
           {pricingState === "error" ? <div className="simple-error" data-testid="pricing-error">{pricingMessage}</div> : null}
 
           <div className="simple-flow-actions">

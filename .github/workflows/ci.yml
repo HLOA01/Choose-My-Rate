@@ -2,7 +2,7 @@ name: CI
 
 on:
   pull_request:
-    branches: [main, fix/application-continuation-2026-10-30, feature/hloa-quote-contract-2026-10-30]
+    branches: [main, fix/application-continuation-2026-10-30, feature/hloa-quote-contract-2026-10-30, test/offline-ecosystem-rehearsal-2026-10-30]
   push:
     branches: [main, fix/restore-sally-behavior-2026-09-01]
 
@@ -46,6 +46,9 @@ jobs:
 
       - name: QA — Sally reply guardrail
         run: npm run qa:sally-guardrail
+
+      - name: QA - Sally text provider boundary (no external network)
+        run: npm run qa:sally-provider
 
       - name: QA — HLOA platform integration (offline unit checks)
         run: npm run qa:platform

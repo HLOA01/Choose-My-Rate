@@ -71,7 +71,7 @@ function withBorrowerQuote(option, closingCostStatus = "complete") {
 
 function quoteBodyFor(payload, mode) {
   if (mode === "empty") {
-    return { status: "qa-local", options: [], message: "No mocked options" };
+    return { status: "no_live_pricing", options: [], message: "No mocked options" };
   }
   if (mode === "empty-with-callback") {
     return {
@@ -84,14 +84,14 @@ function quoteBodyFor(payload, mode) {
   }
   if (mode === "unavailable-estimate") {
     return {
-      status: "qa-local",
+      status: "live", // Synthetic fixture of the legacy live-response schema.
       pricingAsOf: "2026-08-31T12:00:00.000Z",
       options: returnedOptions.map((option) => withBorrowerQuote(option, "estimate_unavailable")),
     };
   }
 
   return {
-    status: "qa-local",
+    status: "live", // Network boundary is mocked; this is not a live lender call.
     pricingAsOf: "2026-08-31T12:00:00.000Z",
     options: payload.loanTypePreference === "fha"
       ? [

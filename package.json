@@ -13,6 +13,7 @@
     "qa:platform": "node ./scripts/qa-platform.mjs",
     "qa:browser": "playwright test",
     "qa:application": "playwright test --config playwright.application.config.js",
+    "qa:quote-contract": "node --test tests/contract/*.test.js",
     "preview": "vite preview"
   },
   "dependencies": {

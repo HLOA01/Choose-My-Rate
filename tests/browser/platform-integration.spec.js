@@ -116,8 +116,8 @@ async function installBoundary(page, opts = {}) {
         contentType: "application/json",
         body: JSON.stringify(
           pricingMode === "empty"
-            ? { status: "qa-local", options: [], message: "No mocked options" }
-            : { status: "qa-local", pricingAsOf: "2026-09-10T12:00:00.000Z", options: RATE_OPTIONS.map(withBorrowerQuote) },
+            ? { status: "no_live_pricing", options: [], message: "No mocked options" }
+            : { status: "live", pricingAsOf: "2026-09-10T12:00:00.000Z", options: RATE_OPTIONS.map(withBorrowerQuote) },
         ),
       });
       return;

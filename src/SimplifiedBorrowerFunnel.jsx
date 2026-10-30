@@ -5,6 +5,8 @@ import { hasPricingApi, quotePricing } from "./pricingApi";
 import { mapCreditScoreToRange, processBorrowerMessageForFunnel } from "./SallyBrain";
 import { useSallyVoice } from "./hooks/useSallyVoice";
 import { useHloaSession } from "./platform/useHloaSession";
+import { useGuestInputContinuation } from "./scenario/useGuestInputContinuation";
+import { GuestInputPanel } from "./components/borrower/GuestInputPanel";
 import { buildFunnelEventPayload, mapScenarioKind } from "./platform/hloaPlatform";
 import { borrowerQuoteView, normalizeBorrowerQuoteResponse, quoteUnavailableReason,
   HLOA_QUOTE_V1, FEE_CATEGORY_LABELS, APPLICATION_HANDOFF_KEY, clearApplicationHandoff } from "./pricing/borrowerQuoteContract";
@@ -497,8 +499,10 @@ export default function SimplifiedBorrowerFunnel() {
   const quotedScenarioRef = useRef(null);
   const comparisonGenerationRef = useRef(0);
   const pendingIntentRef = useRef(null);
+  const guestRestorePendingRef = useRef(false);
   const continuationNavigationRef = useRef(false);
   const hloa = useHloaSession();
+  const guestInputs = useGuestInputContinuation(scenario);
   const lastPricedSignatureRef = useRef("");
   const lastRateEmitRef = useRef({ index: -1, at: 0 });
   const recognitionRef = useRef(null);
@@ -613,6 +617,35 @@ export default function SimplifiedBorrowerFunnel() {
     setPricingMessage("");
     setHandoffMessage("");
   }, []);
+
+  const acceptSavedInputs = async () => {
+    if (guestRestorePendingRef.current) return;
+    guestRestorePendingRef.current = true;
+    try {
+    // Fence existing quote/Sally/comparison work at the click, not after the read.
+    resetPricingView();
+    stopPlayback();
+    cancelDictation();
+    const generation = pricingGenerationRef.current;
+    const result = await guestInputs.accept();
+    if (!result.ok || generation !== pricingGenerationRef.current) return;
+    setScenario((current) => normalizeScenarioDownPayment({ ...current, ...result.inputs, downPayment: result.inputs.downPaymentAmount }));
+    setStep(1);
+    } finally { guestRestorePendingRef.current = false; }
+  };
+  const startOver = () => {
+    // Revocation happens synchronously even if the durable clear later fails.
+    void guestInputs.resetInputs();
+    resetPricingView();
+    stopPlayback();
+    cancelDictation();
+    setScenario(INITIAL_SCENARIO);
+    setStep(0);
+    setSallyInput("");
+    setSallyMessages([]);
+  };
+  const guestInputPriority = Boolean(guestInputs.view.offer || guestInputs.view.problem);
+  const guestInputPanel = <GuestInputPanel view={guestInputs.view} onOptIn={guestInputs.optIn} onAccept={acceptSavedInputs} onStop={guestInputs.forget} onStartOver={startOver} onClearUnreadable={guestInputs.clearUnreadable} onRetryDelete={guestInputs.retryDelete} />;
 
   useEffect(() => {
     clearApplicationHandoff(); // A stored selection is never hydrated as a valid quote.
@@ -1341,6 +1374,8 @@ export default function SimplifiedBorrowerFunnel() {
         ) : null}
       </section>
 
+      {guestInputPriority ? guestInputPanel : null}
+
       {!isResults ? (
         <section className="simple-funnel" data-testid="intake-flow">
           <div className="simple-progress" data-testid="progress-indicator">{step + 1} of 3</div>
@@ -1521,6 +1556,7 @@ export default function SimplifiedBorrowerFunnel() {
           </div>
         </section>
       )}
+      {!guestInputPriority ? guestInputPanel : null}
       <details className="simple-disclosure" data-testid="disclosure">
         <summary>Important rate information</summary>
         <p>

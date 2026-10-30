@@ -12,6 +12,7 @@
     "qa:sally-guardrail": "node ./scripts/qa-sally-guardrail.mjs",
     "qa:platform": "node ./scripts/qa-platform.mjs",
     "qa:browser": "playwright test",
+    "qa:application": "playwright test --config playwright.application.config.js",
     "preview": "vite preview"
   },
   "dependencies": {

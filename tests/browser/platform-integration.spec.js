@@ -176,6 +176,31 @@ test('an unacknowledged application handoff never emits application.started', as
   expect(captured.emits.some((event) => event.eventType === 'application.started')).toBe(false);
 });
 
+test('configured application redirect preserves the handoff without claiming receiver acceptance', async ({ page }, testInfo) => {
+  const applicationUrl = testInfo.config.metadata.applicationUrl;
+  test.skip(!applicationUrl, 'Exercised by qa:application with an explicit local receiver URL.');
+  const captured = await installBoundary(page);
+  let arrivals = 0;
+  await page.route(applicationUrl, async (route) => {
+    arrivals += 1;
+    await route.fulfill({ status: 200, contentType: 'text/html', body: '<h1>Test application destination</h1>' });
+  });
+  await fillPurchaseAndSubmit(page);
+  await expect(page.getByTestId('results-screen')).toBeVisible();
+  await expect.poll(() => captured.linkPosts.length).toBeGreaterThan(0);
+  await Promise.all([
+    page.waitForURL(applicationUrl),
+    page.getByTestId('application-cta').click(),
+  ]);
+  await expect(page.getByRole('heading')).toHaveText('Test application destination');
+  await page.waitForLoadState('networkidle');
+  expect(arrivals).toBe(1);
+  const handoff = await page.evaluate(() => JSON.parse(sessionStorage.getItem('chooseMyRate.applicationHandoff.v1')));
+  expect(handoff).toMatchObject({ selectedRate: 6.5, disclosureVersionAccepted: 'closing-cost-prelim-v1' });
+  expect(handoff.selectedOptionId).toBeTruthy();
+  expect(captured.emits.some((event) => event.eventType === 'application.started')).toBe(false);
+});
+
 test("borrower obtains canonical Lead + Borrower + Scenario ids and persists them locally", async ({ page }) => {
   const captured = await installBoundary(page);
   await fillPurchaseAndSubmit(page);

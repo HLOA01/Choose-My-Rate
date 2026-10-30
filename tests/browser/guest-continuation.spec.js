@@ -580,6 +580,18 @@ test('reload after failed deletion offers no automatic restoration and explains 
   await expect(page.getByTestId('guest-input-shared-warning')).toContainText('earlier failed deletion');
   await expect(page.getByTestId('guest-input-optin')).toBeVisible();
   expect(await rawOf(page)).toBe(original); expect(await writes(page)).toBe(0); expect(counts(captured)).toEqual(before);
+  // Opt-in permits future edits; it does not accept an undeleted snapshot or
+  // dismiss its warning, rewrite savedAt, or refresh its retention window.
+  await optIn(page);
+  await expect(offerBlock(page)).toBeVisible();
+  await expect(page.getByTestId('guest-input-shared-warning')).toContainText('earlier failed deletion');
+  expect(await rawOf(page)).toBe(original);
+  await page.getByRole('button', { name: 'Purchase', exact: true }).click();
+  await page.getByTestId('home-price').fill('489111');
+  await page.waitForTimeout(SETTLE_MS);
+  expect(await rawOf(page)).toBe(original); expect(await writes(page)).toBe(0);
+  await expect(page.getByTestId('guest-input-shared-warning')).toBeVisible();
+  expect(counts(captured)).toEqual(before);
   await page.evaluate(() => sessionStorage.removeItem('__qa_deny_put'));
   await page.getByTestId('guest-input-delete-saved').click();
   await waitForRecord(page, (r) => r.state === 'off' && r.inputs === null);

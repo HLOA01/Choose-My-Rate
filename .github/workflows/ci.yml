@@ -2,7 +2,7 @@ name: CI
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, fix/application-continuation-2026-10-30]
   push:
     branches: [main, fix/restore-sally-behavior-2026-09-01]
 
@@ -37,6 +37,9 @@ jobs:
 
       - name: QA — scenarios
         run: npm run qa:scenarios
+
+      - name: QA — borrower quote contracts (synthetic fixtures)
+        run: npm run qa:quote-contract
 
       - name: QA — Sally
         run: npm run qa:sally

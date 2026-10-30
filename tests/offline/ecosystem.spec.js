@@ -110,11 +110,15 @@ test('TEST actual boundary to UI to partial prepared handoff has matching IDs an
   expect(handoff).toMatchObject({ pricingVersionId: body.pricingVersionId, selectedOptionId: body.options[0].optionId,
     selectedRate: body.options[0].rate, feeCompleteness: 'PARTIAL_ESTIMATE', estimatedClosingCharges: null,
     knownClosingCosts: body.options[0].borrowerQuote.estimatedClosingCosts, handoffSchemaVersion: 2 });
+  expect(createHash('sha256').update(handoff.scenarioSignature).digest('hex')).toBe(evidence.responses[0].scenarioFingerprint);
+  expect(handoff.pointsPercent).toBe(body.options[0].borrowerQuote.points.percent);
+  expect(handoff.pointsDollars).toBe(body.options[0].borrowerQuote.points.dollars);
   await expect(page.getByTestId('handoff-message')).toContainText('not configured');
   const audit = await backend.request('inspect');
   expect(audit.versions[0].source_hash).toBe(backend.info.fixtureHash);
   expect(audit.audits[0].request_id).toBe(evidence.responses[0].requestId);
   expect(audit.gates.filter((entry) => entry.allowed)).toHaveLength(2);
+  expect(audit.gates.every((entry) => entry.request_id === evidence.responses[0].requestId && entry.pricing_version_id === body.pricingVersionId)).toBe(true);
   expect(audit.feeQuotes[0].pricing_version_id).toBe(body.pricingVersionId);
   expect(await backend.request('proveEgressBlocked')).toEqual({ blocked: true });
   expect(evidence.browserBlockedEgress).toEqual([]);
@@ -128,6 +132,14 @@ for (const name of ['no_authority', 'no_role']) {
     expect(body.options).toEqual([]);
     await expect(page.getByTestId('empty-results')).toBeVisible();
     await expect(page.getByTestId('application-cta')).toHaveCount(0);
+    const audit = await backend.request('inspect');
+    if (name === 'no_authority') {
+      expect(audit.authorityConfigured).toBe(false);
+      expect(audit.gates.every((entry) => entry.allowed === false)).toBe(true);
+    } else {
+      expect(audit.roleConfigured).toBe(false);
+      expect(audit.gates).toEqual([]);
+    }
   });
 }
 
@@ -139,6 +151,9 @@ test('TEST Fee Engine outage preserves rate and unavailable costs without zero f
   expect(body.options[0].borrowerQuote.feeCompleteness.status).toBe('UNAVAILABLE');
   await expect(page.getByTestId('estimated-closing-costs')).toHaveText('Unavailable');
   expect(await prepare(page)).toMatchObject({ feeCompleteness: 'UNAVAILABLE', knownClosingCosts: null, estimatedClosingCharges: null, pointsDollars: null });
+  const audit = await backend.request('inspect');
+  expect(audit.feeListenerListening).toBe(false);
+  expect(audit.feeQuotes).toEqual([]);
 });
 
 for (const name of ['paused', 'archived', 'no_authority']) {

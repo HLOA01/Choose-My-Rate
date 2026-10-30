@@ -14,6 +14,7 @@
     "qa:browser": "playwright test",
     "qa:application": "playwright test --config playwright.application.config.js",
     "qa:quote-contract": "node --test tests/contract/*.test.js",
+    "qa:ecosystem-test": "node scripts/qa-ecosystem-test.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

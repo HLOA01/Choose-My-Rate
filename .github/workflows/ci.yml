@@ -53,3 +53,7 @@ jobs:
       - name: QA — browser (Playwright, all backends mocked)
         run: npm run qa:browser
         timeout-minutes: 10
+
+      - name: QA — configured application redirect (local receiver, no acceptance)
+        run: npm run qa:application
+        timeout-minutes: 5

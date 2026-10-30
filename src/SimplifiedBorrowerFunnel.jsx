@@ -768,7 +768,8 @@ export default function SimplifiedBorrowerFunnel() {
       disclosureVersionAccepted: CLOSING_COST_DISCLOSURE_VERSION,
     };
     window.sessionStorage?.setItem("chooseMyRate.applicationHandoff.v1", JSON.stringify(handoff));
-    hloa.emit("application.started", {});
+    // A local handoff or a redirect does not acknowledge a started application.
+    // The receiving application must record that event after durable acceptance.
     if (!APPLICATION_URL) {
       setHandoffMessage("Application handoff is not configured yet. Your selected rate stays here.");
       return;

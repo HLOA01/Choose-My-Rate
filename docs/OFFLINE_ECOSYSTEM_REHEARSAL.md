@@ -46,3 +46,8 @@ npm run qa:ecosystem-test -- --synthetic-only
 The bootstrap child's environment is allow-listed: provider credentials, tokens,
 NODE_OPTIONS and inherited DB destinations are not forwarded. No real lender,
 borrower, CRM, external AI, production resource or existing database is touched.
+The Playwright/Vite process receives the same allow-listed environment plus the
+explicit reviewed paths/commits and test ports. The final report additionally
+requires the UI listener to refuse connections after Playwright exits, as well
+as all HLOA listeners after each case. Unexpected blocked egress fails the report;
+the single deliberate denial proof is labelled separately.

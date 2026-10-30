@@ -36,6 +36,7 @@ test.afterEach(async ({ page }, testInfo) => {
   }
   evidence.status = teardownError ? 'failed' : testInfo.status;
   if (!page.isClosed()) {
+    evidence.finalStoredHandoff = await page.evaluate(() => JSON.parse(sessionStorage.getItem('chooseMyRate.applicationHandoff.v1')));
     await page.evaluate(() => {
       const label = document.createElement('div'); label.textContent = 'TEST — SYNTHETIC DATA — NO LENDER CONNECTION';
       Object.assign(label.style, { position: 'fixed', top: '0', left: '0', padding: '8px', background: '#fee', color: '#800', zIndex: '999999' });
@@ -57,7 +58,8 @@ test.afterAll(() => {
     sallyEnabled: false, voiceEnabled: false, leadEngineEnabled: false,
     lenderAccess: 'UNVERIFIED', productionReadiness: 'UNVERIFIED',
     completedAt: new Date().toISOString(), cases,
-    passed: cases.length === 7 && cases.every((entry) => entry.status === 'passed' && entry.teardown?.listenersRefusedConnections),
+    passed: cases.length === 7 && cases.every((entry) => entry.status === 'passed' && entry.teardown?.listenersRefusedConnections
+      && entry.browserBlockedEgress.length === 0 && entry.audit?.blockedEgress.length === (entry.egressRejectionProof ? 1 : 0)),
   }, null, 2));
 });
 
@@ -121,6 +123,7 @@ test('TEST actual boundary to UI to partial prepared handoff has matching IDs an
   expect(audit.gates.every((entry) => entry.request_id === evidence.responses[0].requestId && entry.pricing_version_id === body.pricingVersionId)).toBe(true);
   expect(audit.feeQuotes[0].pricing_version_id).toBe(body.pricingVersionId);
   expect(await backend.request('proveEgressBlocked')).toEqual({ blocked: true });
+  evidence.egressRejectionProof = true;
   expect(evidence.browserBlockedEgress).toEqual([]);
 });
 

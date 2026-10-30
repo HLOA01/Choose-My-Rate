@@ -51,3 +51,5 @@ explicit reviewed paths/commits and test ports. The final report additionally
 requires the UI listener to refuse connections after Playwright exits, as well
 as all HLOA listeners after each case. Unexpected blocked egress fails the report;
 the single deliberate denial proof is labelled separately.
+
+Reproducibility preflight also rejects untracked executable/configuration files, including ignored .env files, outside dependency/output directories. Originals are never removed. Dependencies must be installed from the lockfile in the isolated worktree. This does not attest dependency bytes or provide an OS networking sandbox. Fetch/browser routing guards do not block raw sockets, WebSockets or arbitrary subprocess networking. Approval-revocation coverage keeps the synthetic verifier installed and denies a fresh explicit reprice; it does not prove idle-browser notification or downstream application acceptance enforcement.

@@ -58,7 +58,7 @@ test.afterAll(() => {
     sallyEnabled: false, voiceEnabled: false, leadEngineEnabled: false,
     lenderAccess: 'UNVERIFIED', productionReadiness: 'UNVERIFIED',
     completedAt: new Date().toISOString(), cases,
-    passed: cases.length === 7 && cases.every((entry) => entry.status === 'passed' && entry.teardown?.listenersRefusedConnections
+    passed: cases.length === 8 && cases.every((entry) => entry.status === 'passed' && entry.teardown?.listenersRefusedConnections
       && entry.browserBlockedEgress.length === 0 && entry.audit?.blockedEgress.length === (entry.egressRejectionProof ? 1 : 0)),
   }, null, 2));
 });
@@ -159,7 +159,7 @@ test('TEST Fee Engine outage preserves rate and unavailable costs without zero f
   expect(audit.feeQuotes).toEqual([]);
 });
 
-for (const name of ['paused', 'archived', 'no_authority']) {
+for (const name of ['paused', 'archived', 'no_authority', 'revoked_approval']) {
   test(`TEST ${name} after a quote invalidates the old prepared handoff on repricing`, async ({ page }) => {
     await fill(page); await quote(page);
     await expect(page.getByTestId('results-screen')).toBeVisible();
@@ -167,6 +167,12 @@ for (const name of ['paused', 'archived', 'no_authority']) {
     await setCase(name);
     await page.getByRole('button', { name: 'Edit details' }).click();
     const body = await quote(page);
+    if (name === 'revoked_approval') {
+      const audit = await backend.request('inspect');
+      expect(audit.authorityConfigured).toBe(true);
+      expect(audit.approvalRevoked).toBe(true);
+      expect(audit.gates.some((entry) => entry.allowed === false)).toBe(true);
+    }
     expect(body.options).toEqual([]);
     await expect(page.getByTestId('empty-results')).toBeVisible();
     await expect(page.getByTestId('application-cta')).toHaveCount(0);

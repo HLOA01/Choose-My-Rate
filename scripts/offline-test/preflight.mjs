@@ -1,9 +1,25 @@
-import { readFileSync, realpathSync, existsSync } from 'node:fs';
+import { readFileSync, realpathSync, existsSync, readdirSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 
 export const TEST_MODE = 'TEST_SYNTHETIC';
 const git = (root, args) => execFileSync('git', ['-C', root, ...args], { encoding: 'utf8', windowsHide: true }).trim();
+
+export function assertNoUntrackedRuntimeInputs(root, trackedPaths) {
+  const tracked = new Set(trackedPaths.split('\0').filter(Boolean));
+  const excluded = new Set(['.git', 'node_modules', 'dist', 'test-results']);
+  const walk = (directory, prefix = '') => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      if (excluded.has(entry.name)) continue;
+      const relative = prefix + entry.name;
+      if (entry.isSymbolicLink()) throw new Error('Symlink input prevents a reproducible rehearsal.');
+      if (entry.isDirectory()) walk(join(directory, entry.name), relative + '/');
+      else if (!tracked.has(relative) && (/\.(?:[cm]?[jt]sx?|json|ya?ml|toml|html|css|sh|ps1|cmd|bat)$/i.test(entry.name)
+        || /^\.env(?:\.|$)/i.test(entry.name))) throw new Error('Untracked executable or configuration input prevents a reproducible rehearsal.');
+    }
+  };
+  walk(root);
+}
 
 export function assertRepository(root, name, expectedSha, readGit = git) {
   if (!root || !/^[a-f0-9]{40}$/i.test(expectedSha || '')) throw new Error('Explicit repository path and exact expected commit are required.');
@@ -13,6 +29,7 @@ export function assertRepository(root, name, expectedSha, readGit = git) {
   const sha = readGit(resolved, ['rev-parse', 'HEAD']);
   if (sha !== expectedSha.toLowerCase()) throw new Error('Repository commit mismatch.');
   if (readGit(resolved, ['status', '--porcelain', '--untracked-files=no'])) throw new Error('Tracked repository changes prevent a reproducible rehearsal.');
+  assertNoUntrackedRuntimeInputs(resolved, readGit(resolved, ['ls-files', '-z']));
   return { root: resolved, sha, packageName: name, trackedClean: true };
 }
 

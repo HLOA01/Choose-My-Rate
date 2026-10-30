@@ -3,7 +3,7 @@ import { it } from 'node:test';
 import { mkdtempSync, writeFileSync, rmSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname, basename } from 'node:path';
-import { assertRepository, assertLocalOrigin, childEnvironment, configuration } from '../../scripts/offline-test/preflight.mjs';
+import { assertRepository, assertLocalOrigin, childEnvironment, configuration, assertNoUntrackedRuntimeInputs } from '../../scripts/offline-test/preflight.mjs';
 
 it('preflight rejects missing, wrong-package, wrong-commit and dirty tracked source without starting services', () => {
   const tempBase = realpathSync(tmpdir());
@@ -11,12 +11,17 @@ it('preflight rejects missing, wrong-package, wrong-commit and dirty tracked sou
   const sha = 'a'.repeat(40);
   try {
     writeFileSync(join(root, 'package.json'), JSON.stringify({ name: 'hloa-platform' }));
-    const cleanGit = (_root, args) => args[0] === 'rev-parse' ? sha : '';
+    const cleanGit = (_root, args) => args[0] === 'rev-parse' ? sha : args[0] === 'ls-files' ? 'package.json\0' : '';
     assert.throws(() => assertRepository('', 'hloa-platform', sha, cleanGit));
     assert.throws(() => assertRepository(root, 'choose-my-rate', sha, cleanGit), /identity mismatch/);
     assert.throws(() => assertRepository(root, 'hloa-platform', 'b'.repeat(40), cleanGit), /commit mismatch/);
     assert.throws(() => assertRepository(root, 'hloa-platform', sha, (_root, args) => args[0] === 'rev-parse' ? sha : ' M file'), /Tracked/);
     assert.equal(assertRepository(root, 'hloa-platform', sha, cleanGit).trackedClean, true);
+    writeFileSync(join(root, 'shadow.mjs'), 'throw new Error("untracked shadow")');
+    assert.throws(() => assertRepository(root, 'hloa-platform', sha, cleanGit), /Untracked/);
+    rmSync(join(root, 'shadow.mjs'));
+    writeFileSync(join(root, '.env.local'), 'VITE_OTHER_URL=http://example.invalid');
+    assert.throws(() => assertNoUntrackedRuntimeInputs(root, 'package.json\0'), /Untracked/);
   } finally {
     const target = realpathSync(root);
     assert.equal(dirname(target), tempBase);

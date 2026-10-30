@@ -346,6 +346,21 @@ function pickParOption(options) {
   })[0] || null;
 }
 
+function watchExplicitQuoteExpiry(quotes, expire) {
+  const deadlines = quotes.flatMap((entry) => [entry?.expiresAt, entry?.quoteExpiresAt])
+    .filter((value) => value != null).map(Date.parse);
+  if (!deadlines.length) return;
+  let timer;
+  const check = () => {
+    const remaining = Math.min(...deadlines) - Date.now();
+    if (!Number.isFinite(remaining) || remaining <= 0) { expire(); return; }
+    // Chunk long explicit deadlines instead of overflowing the browser timer.
+    timer = window.setTimeout(check, Math.min(remaining, 2147483647));
+  };
+  check();
+  return () => window.clearTimeout(timer);
+}
+
 function formatRefinanceGoal(value) {
   const labels = {
     lower_payment: "Lower payment",
@@ -619,20 +634,26 @@ export default function SimplifiedBorrowerFunnel() {
 
   useEffect(() => {
     if (!['live', 'warning'].includes(quote?.status)) return;
-    const deadlines = [quote?.expiresAt, quote?.quoteExpiresAt].filter((value) => value != null).map(Date.parse);
-    if (!deadlines.length) return;
+    const generation = pricingGenerationRef.current;
     const expire = () => {
+      if (generation !== pricingGenerationRef.current) return;
       resetPricingView();
       setPricingState("empty");
       setPricingMessage("This quote expired. Request current pricing before continuing.");
     };
     // Only enforce an explicit server deadline. No client-created validity age.
-    const delay = Math.min(...deadlines) - Date.now();
-    if (delay <= 0) { expire(); return; }
-    if (delay > 2147483647) return; // Apply still validates long explicit deadlines.
-    const timer = window.setTimeout(expire, delay);
-    return () => window.clearTimeout(timer);
+    return watchExplicitQuoteExpiry([quote], expire);
   }, [quote, resetPricingView]);
+
+  useEffect(() => {
+    if (comparison?.status !== "ready") return;
+    const generation = comparisonGenerationRef.current;
+    return watchExplicitQuoteExpiry([comparison.fhaQuote, comparison.conventionalQuote], () => {
+      if (generation !== comparisonGenerationRef.current) return;
+      comparisonGenerationRef.current += 1;
+      setComparison({ status: "error", message: "The comparison expired. Compare current options again." });
+    });
+  }, [comparison]);
 
   const updateScenario = (field, value) => {
     resetPricingView();
@@ -811,8 +832,15 @@ export default function SimplifiedBorrowerFunnel() {
       if (generation !== pricingGenerationRef.current || comparisonGeneration !== comparisonGenerationRef.current) return;
       const fhaQuote = normalizeBorrowerQuoteResponse(fhaRaw);
       const conventionalQuote = normalizeBorrowerQuoteResponse(conventionalRaw);
+      if (quoteUnavailableReason(fhaQuote) || quoteUnavailableReason(conventionalQuote)
+        || !fhaQuote.options.length || !conventionalQuote.options.length) {
+        setComparison({ status: "error", message: "The comparison is unavailable right now. No rates are estimated or filled in." });
+        return;
+      }
       setComparison({
         status: "ready",
+        fhaQuote,
+        conventionalQuote,
         fha: pickParOption(fhaQuote?.options || []),
         conventional: pickParOption(conventionalQuote?.options || []),
       });
@@ -1446,7 +1474,7 @@ export default function SimplifiedBorrowerFunnel() {
                   </p>
                 ))}
                 {selectedBorrowerQuote.unpriced.map((item, index) => (
-                  <p key={`${item.feeKey}-${index}`} data-testid="unpriced-fee">{FEE_CATEGORY_LABELS[item.category] || "Additional costs"}: unavailable</p>
+                  <p key={`${item.feeKey}-${index}`} data-testid="unpriced-fee">{Object.hasOwn(FEE_CATEGORY_LABELS, item.category) ? FEE_CATEGORY_LABELS[item.category] : "Additional costs"}: unavailable</p>
                 ))}
                 <p>{getPublicClosingCostStatusText(selectedOption)}</p>
               </div>

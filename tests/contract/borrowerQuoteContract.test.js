@@ -100,3 +100,18 @@ it('malformed fee line items cannot leave a complete total or silently disappear
   assert.equal(view.knownClosingCosts, null);
   assert.equal(view.unpriced[0].reason, 'invalid_fee_items');
 });
+
+it('malformed unpriced metadata never becomes an empty list with a complete estimate', () => {
+  for (const metadata of [undefined, null, {}, 'none', [null], ['missing'],
+    [{ category: 'title', feeKey: '', reason: 'missing' }], [{ category: 'title', feeKey: 'title', reason: null }]]) {
+    const fixture = hloaQuote({ feeStatus: 'COMPLETE_ESTIMATE' });
+    fixture.options[0].borrowerQuote.feeCompleteness.unpriced = metadata;
+    const response = normalizeBorrowerQuoteResponse(fixture);
+    assert.equal(response.options.length, 1, 'fee metadata does not invent a rate rejection');
+    const view = response.options[0].quoteView;
+    assert.equal(view.feeStatus, 'UNAVAILABLE');
+    assert.equal(view.knownClosingCosts, null);
+    assert.equal(view.cashToClose, null);
+    assert.equal(view.unpriced.at(-1).reason, 'invalid_unpriced_metadata');
+  }
+});

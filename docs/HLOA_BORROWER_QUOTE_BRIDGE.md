@@ -51,6 +51,21 @@ preparing a handoff. Hidden server revocation or supersession while the browser
 is idle cannot be detected without a server protocol. A real application
 receiver must revalidate current pricing/approval before durable acceptance.
 
+FHA/Conventional comparisons retain the two normalized responses, including
+their individual explicit deadlines. The panel expires at the earliest supplied
+comparison deadline independently of the main quote and its prepared handoff.
+An expired/unavailable comparison response is rejected at receipt. Expiry timers
+recheck long deadlines in bounded browser-timer chunks; they invent no duration.
+The comparison-expiry regression keeps the main quote undated and valid so that
+the comparison cannot accidentally borrow the main quote's lifecycle.
+
+HLOA's producer requires `feeCompleteness.unpriced` to be an array of records
+with nonempty category, feeKey and reason strings. Missing/malformed metadata or
+entries downgrade cost availability instead of silently becoming an empty list
+under COMPLETE_ESTIMATE. A valid rate can still be displayed, with unavailable
+costs retained in its handoff. This follows the required producer fields at the
+source commit above; no backend policy or expiry field was assumed.
+
 ## Temporary application handoff
 
 The existing sessionStorage key is retained, with an explicit version-2 payload.

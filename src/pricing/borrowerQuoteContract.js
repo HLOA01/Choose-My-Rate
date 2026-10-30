@@ -46,9 +46,16 @@ export function borrowerQuoteView(option) {
     if (raw.contractVersion && raw.contractVersion !== HLOA_QUOTE_V1) return view;
     if (!['COMPLETE_ESTIMATE', 'PARTIAL_ESTIMATE', 'UNAVAILABLE'].includes(raw.feeCompleteness?.status)) return view;
     view.feeStatus = raw.feeCompleteness.status;
-    view.unpriced = Array.isArray(raw.feeCompleteness.unpriced) ? raw.feeCompleteness.unpriced.map((item) => ({
-      category: String(item.category || 'other'), feeKey: String(item.feeKey || ''), reason: String(item.reason || 'unavailable'),
-    })) : [];
+    const metadata = raw.feeCompleteness.unpriced;
+    const validMissingItem = (item) => item && !Array.isArray(item) && typeof item === 'object'
+      && ['category', 'feeKey', 'reason'].every((key) => typeof item[key] === 'string' && item[key].trim().length > 0);
+    const missingItems = Array.isArray(metadata) ? metadata.filter(validMissingItem) : [];
+    view.unpriced = missingItems.map(({ category, feeKey, reason }) => ({ category, feeKey, reason }));
+    if (!Array.isArray(metadata) || missingItems.length !== metadata.length) {
+      view.feeStatus = 'UNAVAILABLE';
+      view.unpriced.push({ category: 'other', feeKey: 'invalid_fee_metadata', reason: 'invalid_unpriced_metadata' });
+      return view;
+    }
     if (view.unpriced.length && view.feeStatus === 'COMPLETE_ESTIMATE') view.feeStatus = 'PARTIAL_ESTIMATE';
     if (view.feeStatus === 'UNAVAILABLE') return view;
     view.pricingOption = adjustments(raw.points?.percent, raw.points?.dollars, raw.lenderCreditFromPrice?.percent, raw.lenderCreditFromPrice?.dollars);

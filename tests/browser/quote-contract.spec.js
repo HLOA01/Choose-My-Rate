@@ -295,3 +295,29 @@ for (const outcome of ['success', 'error']) {
     expect((await handoff(page)).intentId).toBe(current.intentId);
   });
 }
+
+test('comparison expires independently while the main quote has no deadline', async ({ page }) => {
+  await install(page, (_payload, index) => ({ body: index === 1 ? hloaQuote()
+    : hloaQuote({ rate: index === 2 ? 5.75 : 6, expiresAt: new Date(Date.now() + (index === 2 ? 5000 : 60000)).toISOString() }) }));
+  await fill(page); await submit(page);
+  await page.getByTestId('application-cta').click();
+  const current = await handoff(page);
+  await page.getByTestId('comparison-trigger').click();
+  await expect(page.getByTestId('comparison-result')).toContainText('5.750%');
+  await expect(page.getByTestId('comparison-result')).toContainText('comparison expired', { timeout: 8000 });
+  await expect(page.getByTestId('comparison-result')).not.toContainText('5.750%');
+  await expect(page.getByTestId('comparison-result')).not.toContainText('6.000%');
+  await expect(page.getByTestId('selected-rate')).toHaveText('6.500%');
+  expect((await handoff(page)).intentId).toBe(current.intentId);
+});
+
+test('malformed missing-fee metadata cannot display a complete cost estimate', async ({ page }) => {
+  const fixture = hloaQuote({ feeStatus: 'COMPLETE_ESTIMATE' });
+  fixture.options[0].borrowerQuote.feeCompleteness.unpriced = null;
+  await install(page, () => ({ body: fixture }));
+  await fill(page); await submit(page);
+  await expect(page.getByTestId('estimated-closing-costs')).toHaveText('Unavailable');
+  await expect(page.getByTestId('closing-cost-status')).toContainText('unavailable');
+  await page.getByTestId('application-cta').click();
+  expect(await handoff(page)).toMatchObject({ feeCompleteness: 'UNAVAILABLE', knownClosingCosts: null, estimatedClosingCharges: null });
+});

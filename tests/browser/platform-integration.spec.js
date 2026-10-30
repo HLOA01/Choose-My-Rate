@@ -163,6 +163,19 @@ async function readIdentity(page) {
   });
 }
 
+test('an unacknowledged application handoff never emits application.started', async ({ page }) => {
+  const captured = await installBoundary(page);
+  await fillPurchaseAndSubmit(page);
+  await expect(page.getByTestId('results-screen')).toBeVisible();
+  await expect.poll(() => captured.linkPosts.length).toBeGreaterThan(0);
+  await page.getByTestId('application-cta').click();
+  await expect(page.getByTestId('handoff-message')).toContainText('not configured yet');
+  expect(await page.evaluate(() => JSON.parse(sessionStorage.getItem('chooseMyRate.applicationHandoff.v1'))))
+    .toHaveProperty('selectedOptionId');
+  await page.waitForLoadState('networkidle');
+  expect(captured.emits.some((event) => event.eventType === 'application.started')).toBe(false);
+});
+
 test("borrower obtains canonical Lead + Borrower + Scenario ids and persists them locally", async ({ page }) => {
   const captured = await installBoundary(page);
   await fillPurchaseAndSubmit(page);

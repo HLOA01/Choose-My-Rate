@@ -131,3 +131,50 @@ it('rejects invalid server deadlines and oversized/deep output without coercing 
     assert.equal(body.guardrailTriggered, true);
   }
 });
+
+it('rejects exact review bypasses and the entire associated untrusted proposal', async () => {
+  for (const replyText of ['Your monthly payment is 2000.', 'Your rate is six percent.', 'Your loan has been approved.']) {
+    const response = await createSallyTextHandler({ config, provider: fake({ ...good, replyText, scenarioUpdates: { loanAmount: 900000 }, needsPricingRefresh: true }) })(event({ message: 'hello', localResult: { scenario: { loanAmount: 900000 } } }));
+    const body = decode(response);
+    assert.equal(body.guardrailTriggered, true); assert.equal(body.confidence, 'low');
+    assert.deepEqual(body.scenarioUpdates, {}); assert.equal(body.detectedIntent, 'other'); assert.equal(body.needsPricingRefresh, false);
+  }
+});
+
+it('preserves useful controlled nonfinancial intake in English and Spanish', async () => {
+  for (const replyText of ['What price range are you looking at?', 'Will this be your primary home, second home, or an investment property?', '\u00bfEn qu\u00e9 c\u00f3digo postal buscas una propiedad?']) {
+    const body = decode(await createSallyTextHandler({ config, provider: fake({ ...good, replyText }) })(event()));
+    assert.equal(body.replyText, replyText); assert.equal(body.guardrailTriggered, false);
+    assert.deepEqual(body.scenarioUpdates, { zipCode: '92660' });
+  }
+});
+
+it('late successful settlement after timeout cannot replace the completed error response', async () => {
+  let resolveLate, signal, calls = 0;
+  const handler = createSallyTextHandler({ config: { ...config, timeoutMs: 10 }, provider: { generate(input) { calls++; signal = input.signal; return new Promise((resolve) => { resolveLate = resolve; }); } } });
+  const response = await handler(event()); const snapshot = JSON.stringify(response);
+  resolveLate({ text: JSON.stringify(good) }); await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(response.statusCode, 502); assert.equal(JSON.stringify(response), snapshot);
+  assert.equal(signal.aborted, true); assert.equal(calls, 1);
+});
+
+it('late successful settlement after explicit cancel cannot replace cancellation or start fallback', async () => {
+  const controller = new AbortController(); let resolveLate, calls = 0;
+  const handler = createSallyTextHandler({ config, provider: { generate() { calls++; return new Promise((resolve) => { resolveLate = resolve; queueMicrotask(() => controller.abort()); }); } } });
+  const response = await handler(event(), { signal: controller.signal });
+  resolveLate({ text: JSON.stringify(good) }); await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(response.statusCode, 499); assert.equal(calls, 1);
+});
+
+it('slow failed primary leaves only the remaining total deadline for fallback', async () => {
+  const calls = []; const started = Date.now(); let fallbackStarted, fallbackSignal;
+  const handler = createSallyTextHandler({ config: { ...config, timeoutMs: 160 }, provider: { async generate({ model, signal }) {
+    calls.push(model);
+    if (calls.length === 1) { await new Promise((resolve) => setTimeout(resolve, 100)); throw new Error('primary failed'); }
+    fallbackStarted = Date.now(); fallbackSignal = signal; return new Promise(() => {});
+  } } });
+  assert.equal((await handler(event())).statusCode, 502);
+  assert.equal(calls.length, 2); assert.equal(fallbackSignal.aborted, true);
+  assert.ok(Date.now() - fallbackStarted < 130, 'fallback must not receive a fresh 160ms budget');
+  assert.ok(Date.now() - started >= 150);
+});

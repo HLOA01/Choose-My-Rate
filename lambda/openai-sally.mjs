@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { safeScenario, diffScenario, normalizeConversationHistory, parseModelJson, sanitizeScenarioUpdates, validateTextOutput, redactSensitiveText } from './sally-text-core.mjs';
+import { safeScenario, diffScenario, normalizeConversationHistory, parseModelJson, sanitizeScenarioUpdates, validateTextOutput, redactSensitiveText, SALLY_INTAKE_TEXT, SALLY_FALLBACK_TEXT } from './sally-text-core.mjs';
 import { createOpenAITextProvider, serverTextConfig, runBounded } from './sally-text-provider.mjs';
 export { collectAllowedNumbers, extractCurrencyAndPercentClaims, findUnsourcedFinancialClaims, validateReplyText } from './sally-text-core.mjs';
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -106,6 +106,7 @@ export function createSallyTextHandler({ config = serverTextConfig(process.env),
     "",
     "SALLY PROMPT CONTEXT:",
     sallyPromptContext,
+    'For replyText and nextQuestion select an exact string from this server-owned list; nextQuestion may also be empty. Do not write other prose: ' + JSON.stringify(SALLY_INTAKE_TEXT),
   ].join("\n");
 
   const modelsToTry = [...new Set([config.primaryModel, config.fallbackModel].filter(Boolean))];
@@ -137,7 +138,7 @@ export function createSallyTextHandler({ config = serverTextConfig(process.env),
   if (!rawResponse) return jsonResponse(502, { message: 'Sally could not reach OpenAI right now.', error: 'Sally provider unavailable.' });
   const parsed = parseModelJson(rawResponse?.text) || {};
   const scenarioUpdates = sanitizeScenarioUpdates(parsed.scenarioUpdates);
-  const fallbackScenarioUpdates = Object.keys(scenarioUpdates).length ? scenarioUpdates : deterministicUpdates;
+  let fallbackScenarioUpdates = Object.keys(scenarioUpdates).length ? scenarioUpdates : deterministicUpdates;
 
   const candidateReplyText = typeof parsed.replyText === "string" ? parsed.replyText.trim() : "";
   const replyValidation = candidateReplyText
@@ -146,18 +147,19 @@ export function createSallyTextHandler({ config = serverTextConfig(process.env),
 
   if (!replyValidation.safe) {
     console.warn("Sally text output rejected by shared guardrails.");
+    fallbackScenarioUpdates = {};
   }
 
   const replyText = candidateReplyText && replyValidation.safe
     ? candidateReplyText
-    : "Got it. Let's confirm that using your actual numbers before I go further.";
+    : SALLY_FALLBACK_TEXT;
 
   return jsonResponse(200, {
     replyText,
-    detectedIntent: ["purchase", "refinance", "cash_out", "reset", "affordability", "compare_rates", "other"].includes(parsed.detectedIntent) ? parsed.detectedIntent : "other",
+    detectedIntent: replyValidation.safe && ["purchase", "refinance", "cash_out", "reset", "affordability", "compare_rates", "other"].includes(parsed.detectedIntent) ? parsed.detectedIntent : "other",
     scenarioUpdates: fallbackScenarioUpdates,
     nextQuestion: replyValidation.safe && validateTextOutput(parsed.nextQuestion) ? parsed.nextQuestion.slice(0, 1000) : "",
-    needsPricingRefresh: Boolean(parsed.needsPricingRefresh === true || Object.keys(fallbackScenarioUpdates).length),
+    needsPricingRefresh: replyValidation.safe && Boolean(parsed.needsPricingRefresh === true || Object.keys(fallbackScenarioUpdates).length),
     confidence: replyValidation.safe
       ? (["low", "medium", "high"].includes(parsed.confidence) ? parsed.confidence : "medium")
       : "low",

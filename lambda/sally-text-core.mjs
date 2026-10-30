@@ -8,14 +8,25 @@ export function redactSensitiveText(text) {
     .replace(/\b[^\s@]+@[^\s@]+\.[^\s@]+\b/g, '[redacted email]');
 }
 
+export const SALLY_FALLBACK_TEXT = "Got it. Let's confirm that using your actual numbers before I go further.";
+// Exact server-owned intake phrases, not a natural-language truth classifier.
+// A provider may select these phrases but cannot author borrower-visible claims.
+export const SALLY_INTAKE_TEXT = Object.freeze([
+  SALLY_FALLBACK_TEXT,
+  "Are you looking to buy a home, refinance, or take cash out?",
+  "Will this be your primary home, second home, or an investment property?",
+  "What price range are you looking at?",
+  "How much are you planning to put down?",
+  "About where is your credit score right now?",
+  "Do you want to look at Conventional, FHA, VA, USDA, Jumbo, or DSCR financing?",
+  "What ZIP code are you shopping in?",
+  "What would you like to change about your scenario?",
+  "Please review the quote details with a licensed loan officer.",
+  "\u00bfBuscas comprar una casa, refinanciar o retirar efectivo?",
+  "\u00bfEn qu\u00e9 c\u00f3digo postal buscas una propiedad?",
+]);
 export function validateTextOutput(text) {
-  // Browser context is not an authoritative quote source. The legacy numerical
-  // matcher remains exported for compatibility but cannot grant pricing trust.
-  return typeof text === 'string' && text.length <= 8000
-    && extractCurrencyAndPercentClaims(text).length === 0
-    && !/\d+(?:\.\d+)?\s*(?:percent|por ciento|dollars|d[oó]lares)\b/i.test(text)
-    && redactSensitiveText(text) === text
-    && !/(?:you(?:'re| are) (?:approved|fully qualified)|guarantee(?:d)? (?:approval|rate)|definitely qualify|aprobaci[oó]n garantizada|est[aá]s aprobado|\b(?:PRMG|rocket|loanDepot|uwm|pennyMac|caliber|crosscountry)\b)/i.test(text);
+  return typeof text === 'string' && (text === '' || SALLY_INTAKE_TEXT.includes(text));
 }
 
 const SCENARIO_KEYS = [

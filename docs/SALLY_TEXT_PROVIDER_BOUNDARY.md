@@ -22,13 +22,16 @@ server-side construction; the HTTP request cannot enable a fake provider.
 Browser scenario values and local parser hints are untrusted and projected to
 known scalar fields. Provider updates are proposals, never authorization or
 underwriting decisions. Common SSN/email patterns are redacted; this is not a
-general PII detector. Reply/question checks reject common approval guarantees,
-known lender-name patterns and financial figures. They are bounded syntactic
-guards, not full bilingual semantic moderation. The legacy numeric matching
+general PII detector. Borrower-visible provider text must exactly match one of
+the server-owned intake/review phrases. Other prose is rejected in full, including
+model-proposed scenario updates, intent and refresh flag. No regular expression
+is presented as natural-language financial verification. The allowed phrases
+preserve bounded scenario intake, not general free-form financial conversation.
+The legacy numeric matching
 exports remain for existing callers/tests, but the handler cannot use client
 numbers to prove quote authority. Until an authenticated server quote-context
-source exists, the handler provides general guidance and directs numerical
-questions to the quote UI/licensed review. This intentionally tightens prior
+source exists, the handler provides controlled intake/review questions and directs
+numerical questions to the quote UI/licensed review. This intentionally tightens prior
 numeric replies rather than treating client-supplied quotes as verified.
 
 Package `lambda/openai-sally.mjs`, `sally-text-core.mjs`,

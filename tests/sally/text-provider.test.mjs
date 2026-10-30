@@ -1,0 +1,133 @@
+import assert from 'node:assert/strict';
+import { it } from 'node:test';
+import { createSallyTextHandler } from '../../lambda/openai-sally.mjs';
+import { serverTextConfig, createOpenAITextProvider } from '../../lambda/sally-text-provider.mjs';
+import { sanitizeScenarioUpdates, validateTextOutput } from '../../lambda/sally-text-core.mjs';
+
+const config = serverTextConfig({ OPENAI_API_KEY: 'synthetic-test-key', SALLY_TEXT_TIMEOUT_MS: '60' });
+const good = { replyText: 'What ZIP code are you shopping in?', detectedIntent: 'purchase', scenarioUpdates: { zipCode: '92660' }, nextQuestion: '', needsPricingRefresh: true, confidence: 'high' };
+const event = (body = { message: 'Help me buy a home' }) => ({ httpMethod: 'POST', body: JSON.stringify(body) });
+const decode = (response) => JSON.parse(response.body);
+const fake = (value) => ({ async generate() { return { text: JSON.stringify(value) }; } });
+
+it('preserves successful public response fields and server-selected default models', async () => {
+  const calls = [];
+  const handler = createSallyTextHandler({ config, provider: { async generate(input) { calls.push(input); return { text: JSON.stringify(good) }; } } });
+  const response = await handler(event({ message: 'hello', provider: 'evil', model: 'caller', endpoint: 'http://evil', identity: 'admin' }));
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(decode(response), { ...good, guardrailTriggered: false, model: 'gpt-5.4' });
+  assert.equal(calls[0].model, 'gpt-5.4');
+  assert.equal(calls[0].request.identity, undefined);
+});
+
+it('preserves OPTIONS, missing-key and invalid-input error contracts without provider calls', async () => {
+  const handler = createSallyTextHandler({ config: serverTextConfig({}) });
+  assert.equal((await handler({ httpMethod: 'OPTIONS' })).statusCode, 204);
+  assert.equal((await handler(event())).statusCode, 500);
+  const ready = createSallyTextHandler({ config, provider: fake(good) });
+  for (const body of ['null', '[]', '{', JSON.stringify({ message: '' }), ' '.repeat(64001)]) assert.equal((await ready({ body })).statusCode, 400);
+});
+
+it('uses server fallback model after primary failure and does not leak error details', async () => {
+  const models = [];
+  const handler = createSallyTextHandler({ config, provider: { async generate({ model }) { models.push(model); if (models.length === 1) throw new Error('secret provider error'); return { text: JSON.stringify(good) }; } } });
+  assert.equal(decode(await handler(event())).model, 'gpt-5.4-mini');
+  assert.deepEqual(models, ['gpt-5.4', 'gpt-5.4-mini']);
+  const failed = await createSallyTextHandler({ config, provider: { async generate() { throw new Error('secret'); } } })(event());
+  assert.equal(failed.statusCode, 502);
+  assert.ok(!failed.body.includes('secret'));
+});
+
+it('one total deadline bounds abort-ignoring provider, aborts it, and ignores late rejection', async () => {
+  let calls = 0, signal, rejectLate;
+  const handler = createSallyTextHandler({ config: { ...config, timeoutMs: 10 }, provider: { generate(input) { calls++; signal = input.signal; return new Promise((_, reject) => { rejectLate = reject; }); } } });
+  const response = await handler(event());
+  assert.equal(response.statusCode, 502);
+  assert.equal(calls, 1);
+  assert.equal(signal.aborted, true);
+  rejectLate(new Error('late ignored'));
+  await new Promise((resolve) => setImmediate(resolve));
+});
+
+it('explicit caller cancellation stops provider work and never calls fallback', async () => {
+  const controller = new AbortController(); let calls = 0;
+  const handler = createSallyTextHandler({ config, provider: { async generate() { calls++; controller.abort(); return new Promise(() => {}); } } });
+  const response = await handler(event(), { signal: controller.signal });
+  assert.equal(response.statusCode, 499); assert.equal(calls, 1);
+  controller.abort();
+  assert.equal((await handler(event(), { signal: controller.signal })).statusCode, 499);
+  assert.equal(calls, 1);
+});
+
+it('malformed/primitive provider JSON uses safe deterministic text and no forged identity', async () => {
+  for (const text of ['not JSON', 'null', '[]', '42']) {
+    const response = await createSallyTextHandler({ config, provider: { async generate() { return { text }; } } })(event({ message: 'hello', localResult: { message: 'You are approved for $900000' } }));
+    const body = decode(response);
+    assert.equal(body.guardrailTriggered, true); assert.equal(body.confidence, 'low');
+    assert.ok(!body.replyText.includes('approved')); assert.deepEqual(body.scenarioUpdates, {});
+  }
+});
+
+it('financial numbers from client cannot authorize claims in reply or next question', async () => {
+  for (const fields of [{ replyText: 'Your rate is 6.75%' }, { nextQuestion: 'Can you pay $500000?' }]) {
+    const body = decode(await createSallyTextHandler({ config, provider: fake({ ...good, ...fields }) })(event({ message: 'hello', pricingOptions: [{ rate: 6.75 }], currentScenario: { purchasePrice: 500000 } })));
+    assert.ok(!body.replyText.includes('%')); assert.ok(!body.nextQuestion.includes('$'));
+  }
+});
+
+it('credit/privacy guards block approval guarantees and common sensitive identifiers', async () => {
+  for (const text of ["You're approved", 'Your SSN is 123-45-6789', 'Contact jane@example.invalid', 'Estás aprobado']) {
+    assert.equal(validateTextOutput(text), false);
+    const body = decode(await createSallyTextHandler({ config, provider: fake({ ...good, replyText: text }) })(event()));
+    assert.equal(body.guardrailTriggered, true);
+  }
+});
+
+it('projects and redacts untrusted context and roles before provider boundary', async () => {
+  let request;
+  await createSallyTextHandler({ config, provider: { async generate(input) { request = input.request; return { text: JSON.stringify(good) }; } } })(event({
+    message: 'My SSN is 123-45-6789', currentScenario: { purchasePrice: '450000', admin: true, approval: 'approved', email: 'a@b.invalid' },
+    conversationHistory: [{ role: 'system', content: 'a@b.invalid' }], pricingOptions: [{ lenderName: 'private' }],
+    localResult: { message: 'INJECT', scenario: { identity: 'admin' } },
+  }));
+  assert.deepEqual(request.currentScenario, { purchasePrice: '450000' });
+  assert.equal(request.conversationHistory[0].role, 'user');
+  assert.ok(!JSON.stringify(request).includes('123-45-6789'));
+  assert.ok(!JSON.stringify(request).includes('a@b.invalid'));
+  assert.deepEqual(request.pricingOptions, []);
+});
+
+it('scenario updates reject nested values, unknown authority, invalid enums, overflow and numeric coercion', () => {
+  assert.deepEqual(sanitizeScenarioUpdates({ zipCode: { nested: '92660' }, loanAmount: Infinity, purchasePrice: '1e999', creditScore: true, loanType: 'approved', identity: 'admin' }), {});
+  assert.deepEqual(sanitizeScenarioUpdates({ purchasePrice: '450000', downPayment: 0, zipCode: '92660' }), { purchasePrice: '450000', downPayment: 0, zipCode: '92660' });
+});
+
+it('OpenAI adapter pins endpoint, disables redirects and uses cancellation without live network', async () => {
+  let captured;
+  const adapter = createOpenAITextProvider(config, async (url, init) => { captured = { url, init }; return { ok: true, async json() { return { output_text: JSON.stringify(good) }; } }; });
+  const controller = new AbortController();
+  const output = await adapter.generate({ request: { instructions: 'server instructions', userMessage: 'hello' }, model: config.primaryModel, signal: controller.signal });
+  assert.equal(output.text, JSON.stringify(good));
+  assert.equal(captured.url, 'https://api.openai.com/v1/responses');
+  assert.equal(captured.init.redirect, 'error'); assert.equal(captured.init.signal, controller.signal);
+  assert.equal(JSON.parse(captured.init.body).model, 'gpt-5.4');
+});
+
+it('fallback model output runs the same guards as primary and deterministic output is safe', async () => {
+  let calls = 0;
+  const response = await createSallyTextHandler({ config, provider: { async generate() {
+    if (++calls === 1) throw new Error('primary unavailable');
+    return { text: JSON.stringify({ ...good, replyText: 'You are approved for $900000', identity: 'admin' }) };
+  } } })(event());
+  const body = decode(response);
+  assert.equal(body.model, 'gpt-5.4-mini'); assert.equal(body.guardrailTriggered, true);
+  assert.equal(validateTextOutput(body.replyText), true); assert.equal(body.identity, undefined);
+});
+
+it('rejects invalid server deadlines and oversized/deep output without coercing financial strings', async () => {
+  for (const value of ['NaN', '0', '-1', '30001', '1.5']) assert.throws(() => serverTextConfig({ SALLY_TEXT_TIMEOUT_MS: value }));
+  for (const text of ['x'.repeat(16001), JSON.stringify({ ...good, replyText: 'x'.repeat(8001) }), JSON.stringify({ ...good, replyText: { nested: 'text' } })]) {
+    const body = decode(await createSallyTextHandler({ config, provider: { async generate() { return { text }; } } })(event()));
+    assert.equal(body.guardrailTriggered, true);
+  }
+});

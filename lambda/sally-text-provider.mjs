@@ -67,4 +67,3 @@ function buildResponsesPayload({ model, instructions, userMessage, currentScenar
     max_output_tokens: 700,
   };
 }
-

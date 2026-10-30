@@ -7,6 +7,8 @@ import { useSallyVoice } from "./hooks/useSallyVoice";
 import { useHloaSession } from "./platform/useHloaSession";
 import { useGuestInputContinuation } from "./scenario/useGuestInputContinuation";
 import { GuestInputPanel } from "./components/borrower/GuestInputPanel";
+import { quotedMonthlyPiToCents } from "./pricing/monthlyPiDifference";
+import { RefinanceMonthlyPiComparison } from "./components/borrower/RefinanceMonthlyPiComparison";
 import { buildFunnelEventPayload, mapScenarioKind } from "./platform/hloaPlatform";
 import { borrowerQuoteView, normalizeBorrowerQuoteResponse, quoteUnavailableReason,
   HLOA_QUOTE_V1, FEE_CATEGORY_LABELS, APPLICATION_HANDOFF_KEY, clearApplicationHandoff } from "./pricing/borrowerQuoteContract";
@@ -1499,6 +1501,9 @@ export default function SimplifiedBorrowerFunnel() {
               </strong>
             </div>
           </div>
+          {scenario.borrowerPath === "refinance" && selectedOption && selectedBorrowerQuote.contractVersion && !quoteUnavailableReason(quote) && quotedMonthlyPiToCents(selectedOption.paymentPI).ok ? (
+            <RefinanceMonthlyPiComparison quotedMonthlyPI={selectedOption.paymentPI} />
+          ) : null}
           <details className="simple-cost-breakdown" data-testid="closing-cost-breakdown">
             <summary>View closing-cost breakdown</summary>
             {selectedBorrowerQuote.contractVersion === HLOA_QUOTE_V1 ? (

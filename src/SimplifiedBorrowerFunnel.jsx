@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
 import { askSallyApi, hasSallyApi } from "./sallyApi";
 import { hasPricingApi, quotePricing } from "./pricingApi";
@@ -6,6 +6,8 @@ import { mapCreditScoreToRange, processBorrowerMessageForFunnel } from "./SallyB
 import { useSallyVoice } from "./hooks/useSallyVoice";
 import { useHloaSession } from "./platform/useHloaSession";
 import { buildFunnelEventPayload, mapScenarioKind } from "./platform/hloaPlatform";
+import { borrowerQuoteView, normalizeBorrowerQuoteResponse, quoteUnavailableReason,
+  HLOA_QUOTE_V1, FEE_CATEGORY_LABELS, APPLICATION_HANDOFF_KEY, clearApplicationHandoff } from "./pricing/borrowerQuoteContract";
 
 // Invisible status node: never changes the layout or the approved design.
 const SR_ONLY_STYLE = {
@@ -148,8 +150,9 @@ function normalizeCreditRange(score) {
 }
 
 function formatCurrency(value) {
+  if (value == null || value === "") return "-";
   const numeric = Number(value);
-  if (!Number.isFinite(numeric) || numeric <= 0) return "-";
+  if (!Number.isFinite(numeric)) return "-";
   return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
@@ -231,7 +234,7 @@ function optionKey(option) {
 }
 
 function getBorrowerQuote(option) {
-  return option?.borrowerQuote || null;
+  return borrowerQuoteView(option);
 }
 
 function getQuotePricingOption(option) {
@@ -239,11 +242,11 @@ function getQuotePricingOption(option) {
 }
 
 function getClosingCostEstimate(option) {
-  return getBorrowerQuote(option)?.closingCostEstimate || null;
+  return getBorrowerQuote(option)?.legacyEstimate || null;
 }
 
 function getEstimatedClosingCharges(option) {
-  const value = getBorrowerQuote(option)?.estimatedClosingCharges;
+  const value = getBorrowerQuote(option)?.knownClosingCosts;
   if (value == null) return null;
   return Number.isFinite(Number(value)) ? Number(value) : null;
 }
@@ -275,18 +278,26 @@ function formatEstimatedClosingCharges(option) {
 }
 
 function getPublicClosingCostStatusText(option) {
+  const view = getBorrowerQuote(option);
+  if (view.contractVersion === HLOA_QUOTE_V1) {
+    if (view.feeStatus === "UNAVAILABLE") return "Closing costs are unavailable. Missing amounts are not assumed to be zero.";
+    if (view.feeStatus === "PARTIAL_ESTIMATE") return "Partial estimate: known costs only. Additional costs are unavailable and are not included in this subtotal.";
+    return "Estimated using the returned HLOA fee items. Final amounts require verification.";
+  }
   const estimate = getClosingCostEstimate(option);
   if (!estimate) return "Closing-cost estimate was not returned.";
   if (estimate.status === "estimate_unavailable") {
     return "Estimated closing costs are unavailable until an approved HLOA fee schedule is connected.";
   }
   if (estimate.status === "estimate_incomplete") {
-    return "Estimated using the currently configured fee items.";
+    return "Partial estimate using currently configured fee items. Additional costs are unavailable.";
   }
   return "Estimated using the current fee schedule.";
 }
 
 function getClosingCostCardValue(option) {
+  const view = getBorrowerQuote(option);
+  if (view.contractVersion === HLOA_QUOTE_V1) return view.feeStatus === "UNAVAILABLE" ? "Unavailable" : formatEstimatedClosingCharges(option);
   const estimate = getClosingCostEstimate(option);
   if (!estimate || estimate.status === "estimate_unavailable") return "Unavailable";
   return formatEstimatedClosingCharges(option);
@@ -467,6 +478,11 @@ export default function SimplifiedBorrowerFunnel() {
   const [pendingFocus, setPendingFocus] = useState("");
   const touchStartRef = useRef(null);
   const abortRef = useRef(null);
+  const pricingGenerationRef = useRef(0);
+  const quotedScenarioRef = useRef(null);
+  const comparisonGenerationRef = useRef(0);
+  const pendingIntentRef = useRef(null);
+  const continuationNavigationRef = useRef(false);
   const hloa = useHloaSession();
   const lastPricedSignatureRef = useRef("");
   const lastRateEmitRef = useRef({ index: -1, at: 0 });
@@ -483,7 +499,7 @@ export default function SimplifiedBorrowerFunnel() {
   const selectedIndex = Math.max(0, options.findIndex((option) => optionKey(option) === optionKey(selectedOption)));
   const previousOption = selectedIndex > 0 ? options[selectedIndex - 1] : null;
   const nextOption = selectedIndex < options.length - 1 ? options[selectedIndex + 1] : null;
-  const isResults = pricingState === "ready" && options.length > 0;
+  const isResults = pricingState === "ready" && options.length > 0 && quotedScenarioRef.current === JSON.stringify(pricingPayload);
   const showAdvisorFollowUp =
     pricingState === "empty" && Boolean(quote?.leadCaptureEnabled || quote?.callbackEnabled);
   const selectedBorrowerQuote = getBorrowerQuote(selectedOption);
@@ -567,13 +583,56 @@ export default function SimplifiedBorrowerFunnel() {
     ]);
   };
 
-  const resetPricingView = () => {
+  const resetPricingView = useCallback(() => {
+    pricingGenerationRef.current += 1;
+    comparisonGenerationRef.current += 1;
+    abortRef.current?.abort();
+    clearApplicationHandoff();
+    pendingIntentRef.current = null;
+    quotedScenarioRef.current = null;
+    setSallyThinking(false);
+    setSelectedOptionId("");
     setQuote(null);
     setComparison(null);
     setPricingState("idle");
     setPricingMessage("");
     setHandoffMessage("");
-  };
+  }, []);
+
+  useEffect(() => {
+    clearApplicationHandoff(); // A stored selection is never hydrated as a valid quote.
+    const onReturn = () => { continuationNavigationRef.current = false; resetPricingView(); };
+    const onShow = (event) => { if (event.persisted) onReturn(); };
+    const onHide = () => { if (!continuationNavigationRef.current) resetPricingView(); };
+    window.addEventListener("popstate", onReturn);
+    window.addEventListener("pageshow", onShow);
+    window.addEventListener("pagehide", onHide);
+    return () => {
+      pricingGenerationRef.current += 1;
+      comparisonGenerationRef.current += 1;
+      abortRef.current?.abort();
+      window.removeEventListener("popstate", onReturn);
+      window.removeEventListener("pageshow", onShow);
+      window.removeEventListener("pagehide", onHide);
+    };
+  }, [resetPricingView]);
+
+  useEffect(() => {
+    if (!['live', 'warning'].includes(quote?.status)) return;
+    const deadlines = [quote?.expiresAt, quote?.quoteExpiresAt].filter((value) => value != null).map(Date.parse);
+    if (!deadlines.length) return;
+    const expire = () => {
+      resetPricingView();
+      setPricingState("empty");
+      setPricingMessage("This quote expired. Request current pricing before continuing.");
+    };
+    // Only enforce an explicit server deadline. No client-created validity age.
+    const delay = Math.min(...deadlines) - Date.now();
+    if (delay <= 0) { expire(); return; }
+    if (delay > 2147483647) return; // Apply still validates long explicit deadlines.
+    const timer = window.setTimeout(expire, delay);
+    return () => window.clearTimeout(timer);
+  }, [quote, resetPricingView]);
 
   const updateScenario = (field, value) => {
     resetPricingView();
@@ -640,6 +699,8 @@ export default function SimplifiedBorrowerFunnel() {
   const selectOption = (option) => {
     if (!option) return;
     if (optionKey(option) === selectedOptionId) return;
+    clearApplicationHandoff();
+    pendingIntentRef.current = null;
     setSelectedOptionId(optionKey(option));
     playTick();
     window.navigator.vibrate?.(12);
@@ -659,6 +720,9 @@ export default function SimplifiedBorrowerFunnel() {
   };
 
   const submitPricing = async () => {
+    resetPricingView();
+    const generation = pricingGenerationRef.current;
+    const requestedScenarioSignature = JSON.stringify(pricingPayload);
     const errors = getValidationErrors(scenario);
     if (errors.length) {
       setPricingState("validation");
@@ -697,7 +761,9 @@ export default function SimplifiedBorrowerFunnel() {
       .catch(() => {});
 
     try {
-      const response = await quotePricing(pricingPayload, { signal: controller.signal });
+      const rawResponse = await quotePricing(pricingPayload, { signal: controller.signal });
+      if (generation !== pricingGenerationRef.current || controller.signal.aborted) return;
+      const response = normalizeBorrowerQuoteResponse(rawResponse);
       const responseOptions = Array.isArray(response?.options) ? response.options : [];
       setQuote(response);
       if (!responseOptions.length) {
@@ -708,11 +774,13 @@ export default function SimplifiedBorrowerFunnel() {
         return;
       }
       const parOption = pickParOption(responseOptions);
+      quotedScenarioRef.current = requestedScenarioSignature;
       setSelectedOptionId(optionKey(parOption));
       setPricingState("ready");
       setPricingMessage("Your live rate options are ready.");
       hloa.emit("rates.returned", { status: "ready", optionCount: responseOptions.length });
     } catch (error) {
+      if (generation !== pricingGenerationRef.current || controller.signal.aborted) return;
       if (error.name === "AbortError") return;
       setPricingState("error");
       setPricingMessage("Live rates are unavailable right now. No rates are shown until live options are available.");
@@ -722,6 +790,8 @@ export default function SimplifiedBorrowerFunnel() {
   };
 
   const compareFhaConventional = async () => {
+    const generation = pricingGenerationRef.current;
+    const comparisonGeneration = ++comparisonGenerationRef.current;
     const errors = getValidationErrors({ ...scenario, borrowerPath: "purchase" });
     if (errors.length) {
       setComparison({ status: "validation", message: errors[0] });
@@ -734,46 +804,70 @@ export default function SimplifiedBorrowerFunnel() {
 
     setComparison({ status: "loading", message: "Comparing live options..." });
     try {
-      const [fhaQuote, conventionalQuote] = await Promise.all([
+      const [fhaRaw, conventionalRaw] = await Promise.all([
         quotePricing(buildPricingPayload({ ...scenario, borrowerPath: "purchase" }, "fha")),
         quotePricing(buildPricingPayload({ ...scenario, borrowerPath: "purchase" }, "conventional")),
       ]);
+      if (generation !== pricingGenerationRef.current || comparisonGeneration !== comparisonGenerationRef.current) return;
+      const fhaQuote = normalizeBorrowerQuoteResponse(fhaRaw);
+      const conventionalQuote = normalizeBorrowerQuoteResponse(conventionalRaw);
       setComparison({
         status: "ready",
         fha: pickParOption(fhaQuote?.options || []),
         conventional: pickParOption(conventionalQuote?.options || []),
       });
     } catch {
+      if (generation !== pricingGenerationRef.current || comparisonGeneration !== comparisonGenerationRef.current) return;
       setComparison({ status: "error", message: "The comparison is unavailable right now. No rates are estimated or filled in." });
     }
   };
 
   const handleApplication = () => {
-    if (!selectedOption) {
-      setHandoffMessage("Choose a rate option before continuing.");
+    if (!isResults || !selectedOption || !selectedBorrowerQuote.contractVersion || quoteUnavailableReason(quote)) {
+      resetPricingView();
+      setPricingState("empty");
+      setPricingMessage("This quote is no longer available. Request current pricing before continuing.");
       return;
     }
+    pendingIntentRef.current ||= window.crypto.randomUUID();
     const handoff = {
       scenario,
       pricingPayload,
       selectedOptionId: selectedOption.optionId,
-      pricingAsOf: quote?.pricingAsOf || selectedBorrowerQuote?.closingCostEstimate?.asOf || null,
+      handoffSchemaVersion: 2,
+      intentId: pendingIntentRef.current,
+      scenarioSignature: JSON.stringify(pricingPayload),
+      pricingVersionId: quote?.pricingVersionId ?? null,
+      expiresAt: quote?.expiresAt ?? null,
+      quoteExpiresAt: quote?.quoteExpiresAt ?? null,
+      quoteContractVersion: selectedBorrowerQuote.contractVersion,
+      feeCompleteness: selectedBorrowerQuote.feeStatus,
+      unpricedCategories: selectedBorrowerQuote.unpriced.map((item) => item.category),
+      pricingAsOf: quote?.pricingAsOf || selectedBorrowerQuote?.legacyEstimate?.asOf || null,
       selectedRate: selectedOption.rate,
       pointsPercent: selectedBorrowerQuote?.pricingOption?.pointsPercent ?? null,
       pointsDollars: selectedBorrowerQuote?.pricingOption?.pointsDollars ?? null,
       lenderCreditPercent: selectedBorrowerQuote?.pricingOption?.lenderCreditPercent ?? null,
       lenderCreditDollars: selectedBorrowerQuote?.pricingOption?.lenderCreditDollars ?? null,
-      closingCostEstimateVersion: selectedBorrowerQuote?.closingCostEstimate?.feeScheduleVersion ?? null,
-      estimatedClosingCharges: selectedBorrowerQuote?.estimatedClosingCharges ?? null,
+      closingCostEstimateVersion: selectedBorrowerQuote?.legacyEstimate?.feeScheduleVersion ?? null,
+      estimatedClosingCharges: selectedBorrowerQuote.feeStatus === "COMPLETE_ESTIMATE" ? selectedBorrowerQuote.knownClosingCosts : null,
+      knownClosingCosts: selectedBorrowerQuote.knownClosingCosts,
       disclosureVersionAccepted: CLOSING_COST_DISCLOSURE_VERSION,
     };
-    window.sessionStorage?.setItem("chooseMyRate.applicationHandoff.v1", JSON.stringify(handoff));
+    try {
+      window.sessionStorage.setItem(APPLICATION_HANDOFF_KEY, JSON.stringify(handoff));
+    } catch {
+      clearApplicationHandoff();
+      setHandoffMessage("Your selection could not be saved. Please try again before continuing.");
+      return;
+    }
     // A local handoff or a redirect does not acknowledge a started application.
     // The receiving application must record that event after durable acceptance.
     if (!APPLICATION_URL) {
       setHandoffMessage("Application handoff is not configured yet. Your selected rate stays here.");
       return;
     }
+    continuationNavigationRef.current = true;
     window.location.assign(APPLICATION_URL);
   };
 
@@ -834,6 +928,7 @@ export default function SimplifiedBorrowerFunnel() {
     addBorrowerMessage(userText);
     stopPlayback();
     resetPricingView();
+    const generation = pricingGenerationRef.current;
     setSallyThinking(true);
 
     const localResult = processBorrowerMessageForFunnel(userText, scenario);
@@ -868,17 +963,19 @@ export default function SimplifiedBorrowerFunnel() {
     } catch {
       responseText = localResult.message || "I captured what I could locally. Sally's online help is temporarily unavailable.";
     } finally {
-      const nextPrompt = nextMissingPrompt(nextScenario);
-      if (hasScenarioChange) {
-        setScenario(nextScenario);
-        moveToPrompt(nextPrompt);
+      if (generation === pricingGenerationRef.current) {
+        const nextPrompt = nextMissingPrompt(nextScenario);
+        if (hasScenarioChange) {
+          setScenario(nextScenario);
+          moveToPrompt(nextPrompt);
+        }
+        addSallyMessage(
+          !hasScenarioChange || responseText.includes(nextPrompt.text)
+            ? responseText
+            : `${responseText} ${nextPrompt.text}`.trim(),
+        );
+        setSallyThinking(false);
       }
-      addSallyMessage(
-        !hasScenarioChange || responseText.includes(nextPrompt.text)
-          ? responseText
-          : `${responseText} ${nextPrompt.text}`.trim(),
-      );
-      setSallyThinking(false);
     }
   };
 
@@ -1268,7 +1365,7 @@ export default function SimplifiedBorrowerFunnel() {
           {pricingState === "error" ? <div className="simple-error" data-testid="pricing-error">{pricingMessage}</div> : null}
 
           <div className="simple-flow-actions">
-            {step > 0 ? <button type="button" className="simple-secondary-button" onClick={() => setStep((current) => current - 1)}>Back</button> : null}
+            {step > 0 ? <button type="button" className="simple-secondary-button" onClick={() => { resetPricingView(); setStep((current) => current - 1); }}>Back</button> : null}
             {step < 2 ? (
               <button type="button" className="simple-primary-button" onClick={() => setStep((current) => current + 1)}>Continue</button>
             ) : (
@@ -1278,9 +1375,10 @@ export default function SimplifiedBorrowerFunnel() {
         </section>
       ) : (
         <section className="simple-results" data-testid="results-screen">
+          {quote?.banner ? <p role="status" data-testid="pricing-banner">{quote.banner}</p> : null}
           <div className="simple-results-summary">
             <span data-testid="compact-scenario-summary">{getScenarioSummary(scenario)}</span>
-            <button type="button" onClick={() => setPricingState("idle")}>Edit details</button>
+            <button type="button" onClick={resetPricingView}>Edit details</button>
           </div>
           <section
             className="simple-rate-dial"
@@ -1332,7 +1430,7 @@ export default function SimplifiedBorrowerFunnel() {
               </strong>
             </div>
             <div>
-              <span>Estimated closing costs</span>
+              <span>{selectedBorrowerQuote.feeStatus === "PARTIAL_ESTIMATE" ? "Known closing costs (partial)" : "Estimated closing costs"}</span>
               <strong className="simple-estimated-closing-costs" data-testid="estimated-closing-costs">
                 {getClosingCostCardValue(selectedOption)}
               </strong>
@@ -1340,7 +1438,19 @@ export default function SimplifiedBorrowerFunnel() {
           </div>
           <details className="simple-cost-breakdown" data-testid="closing-cost-breakdown">
             <summary>View closing-cost breakdown</summary>
-            {closingCostEquation ? (
+            {selectedBorrowerQuote.contractVersion === HLOA_QUOTE_V1 ? (
+              <div data-testid="hloa-fee-items">
+                {selectedBorrowerQuote.lineItems.map((item, index) => (
+                  <p key={`${item.feeKey}-${index}`} data-testid="fee-line-item">
+                    {item.label}: {item.direction === "credit" ? "−" : ""}{formatCurrency(item.amount)} ({item.status})
+                  </p>
+                ))}
+                {selectedBorrowerQuote.unpriced.map((item, index) => (
+                  <p key={`${item.feeKey}-${index}`} data-testid="unpriced-fee">{FEE_CATEGORY_LABELS[item.category] || "Additional costs"}: unavailable</p>
+                ))}
+                <p>{getPublicClosingCostStatusText(selectedOption)}</p>
+              </div>
+            ) : closingCostEquation ? (
               <div className="simple-cost-equation" data-testid="closing-cost-equation">
                 {closingCostEquation.parts.map((part, index) => (
                   <React.Fragment key={part.label}>
@@ -1353,7 +1463,7 @@ export default function SimplifiedBorrowerFunnel() {
                 ))}
                 <span className="simple-equation-operator">=</span>
                 <span className="simple-equation-item total">
-                  <span>Estimated closing costs after rate adjustment</span>
+                  <span>{selectedBorrowerQuote.feeStatus === "PARTIAL_ESTIMATE" ? "Known closing costs after rate adjustment (partial)" : "Estimated closing costs after rate adjustment"}</span>
                   <strong>{closingCostEquation.total}</strong>
                 </span>
               </div>

@@ -2,7 +2,8 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { safeScenario, diffScenario, normalizeConversationHistory, parseModelJson, sanitizeScenarioUpdates, validateTextOutput, redactSensitiveText, SALLY_INTAKE_TEXT, SALLY_FALLBACK_TEXT } from './sally-text-core.mjs';
+import { safeScenario, normalizeConversationHistory, parseModelJson, validateTextOutput, redactSensitiveText, SALLY_INTAKE_TEXT, SALLY_FALLBACK_TEXT, SALLY_CONFIRM_TEXT, localizeIntakeText, intakeLanguage } from './sally-text-core.mjs';
+import { currentMessageEvidence, proposalMatchesEvidence } from './sally-text-evidence.mjs';
 import { createOpenAITextProvider, serverTextConfig, runBounded } from './sally-text-provider.mjs';
 export { collectAllowedNumbers, extractCurrencyAndPercentClaims, findUnsourcedFinancialClaims, validateReplyText } from './sally-text-core.mjs';
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -78,9 +79,9 @@ export function createSallyTextHandler({ config = serverTextConfig(process.env),
   const currentScenario = safeScenario(payload.currentScenario || payload.scenario);
   const conversationHistory = normalizeConversationHistory(payload.conversationHistory);
   const pricingOptions = []; // Client-supplied quotes cannot establish pricing authority.
-  const localResult = { scenario: safeScenario(payload.localResult?.scenario) };
-  const localScenario = safeScenario(localResult.scenario);
-  const deterministicUpdates = diffScenario(currentScenario, localScenario);
+  const deterministicUpdates = currentMessageEvidence(userMessage);
+  const localResult = { scenario: deterministicUpdates };
+  const language = intakeLanguage(userMessage, payload.language);
 
   if (!userMessage) {
     return jsonResponse(400, { message: "Message is required." });
@@ -137,12 +138,12 @@ export function createSallyTextHandler({ config = serverTextConfig(process.env),
   if (invocation.signal?.aborted) return jsonResponse(499, { message: 'Sally request cancelled.' });
   if (!rawResponse) return jsonResponse(502, { message: 'Sally could not reach OpenAI right now.', error: 'Sally provider unavailable.' });
   const parsed = parseModelJson(rawResponse?.text) || {};
-  const scenarioUpdates = sanitizeScenarioUpdates(parsed.scenarioUpdates);
-  let fallbackScenarioUpdates = Object.keys(scenarioUpdates).length ? scenarioUpdates : deterministicUpdates;
+  const proposalSupported = proposalMatchesEvidence(parsed.scenarioUpdates, deterministicUpdates);
+  let fallbackScenarioUpdates = deterministicUpdates;
 
   const candidateReplyText = typeof parsed.replyText === "string" ? parsed.replyText.trim() : "";
   const replyValidation = candidateReplyText
-    ? { safe: validateTextOutput(candidateReplyText) && (parsed.nextQuestion === undefined || validateTextOutput(parsed.nextQuestion)), unsourcedClaims: [] }
+    ? { safe: proposalSupported && validateTextOutput(candidateReplyText) && (parsed.nextQuestion === undefined || validateTextOutput(parsed.nextQuestion)), unsourcedClaims: [] }
     : { safe: false, unsourcedClaims: [] };
 
   if (!replyValidation.safe) {
@@ -151,15 +152,15 @@ export function createSallyTextHandler({ config = serverTextConfig(process.env),
   }
 
   const replyText = candidateReplyText && replyValidation.safe
-    ? candidateReplyText
-    : SALLY_FALLBACK_TEXT;
+    ? localizeIntakeText(candidateReplyText, language)
+    : localizeIntakeText(proposalSupported ? SALLY_FALLBACK_TEXT : SALLY_CONFIRM_TEXT, language);
 
   return jsonResponse(200, {
     replyText,
-    detectedIntent: replyValidation.safe && ["purchase", "refinance", "cash_out", "reset", "affordability", "compare_rates", "other"].includes(parsed.detectedIntent) ? parsed.detectedIntent : "other",
+    detectedIntent: replyValidation.safe ? deterministicUpdates.loanPurpose || 'other' : 'other',
     scenarioUpdates: fallbackScenarioUpdates,
-    nextQuestion: replyValidation.safe && validateTextOutput(parsed.nextQuestion) ? parsed.nextQuestion.slice(0, 1000) : "",
-    needsPricingRefresh: replyValidation.safe && Boolean(parsed.needsPricingRefresh === true || Object.keys(fallbackScenarioUpdates).length),
+    nextQuestion: replyValidation.safe && validateTextOutput(parsed.nextQuestion) ? localizeIntakeText(parsed.nextQuestion, language) : "",
+    needsPricingRefresh: replyValidation.safe && Object.keys(fallbackScenarioUpdates).length > 0,
     confidence: replyValidation.safe
       ? (["low", "medium", "high"].includes(parsed.confidence) ? parsed.confidence : "medium")
       : "low",

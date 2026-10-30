@@ -2,18 +2,19 @@ import assert from 'node:assert/strict';
 import { it } from 'node:test';
 import { createSallyTextHandler } from '../../lambda/openai-sally.mjs';
 import { serverTextConfig, createOpenAITextProvider } from '../../lambda/sally-text-provider.mjs';
-import { sanitizeScenarioUpdates, validateTextOutput } from '../../lambda/sally-text-core.mjs';
+import { sanitizeScenarioUpdates, validateTextOutput, SALLY_INTAKE_TEXT, localizeIntakeText } from '../../lambda/sally-text-core.mjs';
+import { currentMessageEvidence } from '../../lambda/sally-text-evidence.mjs';
 
 const config = serverTextConfig({ OPENAI_API_KEY: 'synthetic-test-key', SALLY_TEXT_TIMEOUT_MS: '60' });
-const good = { replyText: 'What ZIP code are you shopping in?', detectedIntent: 'purchase', scenarioUpdates: { zipCode: '92660' }, nextQuestion: '', needsPricingRefresh: true, confidence: 'high' };
-const event = (body = { message: 'Help me buy a home' }) => ({ httpMethod: 'POST', body: JSON.stringify(body) });
+const good = { replyText: 'What ZIP code are you shopping in?', detectedIntent: 'other', scenarioUpdates: { zipCode: '92660' }, nextQuestion: '', needsPricingRefresh: true, confidence: 'high' };
+const event = (body = { message: 'My ZIP is 92660' }) => ({ httpMethod: 'POST', body: JSON.stringify(body) });
 const decode = (response) => JSON.parse(response.body);
 const fake = (value) => ({ async generate() { return { text: JSON.stringify(value) }; } });
 
 it('preserves successful public response fields and server-selected default models', async () => {
   const calls = [];
   const handler = createSallyTextHandler({ config, provider: { async generate(input) { calls.push(input); return { text: JSON.stringify(good) }; } } });
-  const response = await handler(event({ message: 'hello', provider: 'evil', model: 'caller', endpoint: 'http://evil', identity: 'admin' }));
+  const response = await handler(event({ message: 'My ZIP is 92660', provider: 'evil', model: 'caller', endpoint: 'http://evil', identity: 'admin' }));
   assert.equal(response.statusCode, 200);
   assert.deepEqual(decode(response), { ...good, guardrailTriggered: false, model: 'gpt-5.4' });
   assert.equal(calls[0].model, 'gpt-5.4');
@@ -143,7 +144,7 @@ it('rejects exact review bypasses and the entire associated untrusted proposal',
 
 it('preserves useful controlled nonfinancial intake in English and Spanish', async () => {
   for (const replyText of ['What price range are you looking at?', 'Will this be your primary home, second home, or an investment property?', '\u00bfEn qu\u00e9 c\u00f3digo postal buscas una propiedad?']) {
-    const body = decode(await createSallyTextHandler({ config, provider: fake({ ...good, replyText }) })(event()));
+    const body = decode(await createSallyTextHandler({ config, provider: fake({ ...good, replyText }) })(event({ message: 'My ZIP is 92660', language: replyText.startsWith('\u00bf') ? 'es' : 'en' })));
     assert.equal(body.replyText, replyText); assert.equal(body.guardrailTriggered, false);
     assert.deepEqual(body.scenarioUpdates, { zipCode: '92660' });
   }
@@ -177,4 +178,61 @@ it('slow failed primary leaves only the remaining total deadline for fallback', 
   assert.equal(calls.length, 2); assert.equal(fallbackSignal.aborted, true);
   assert.ok(Date.now() - fallbackStarted < 130, 'fallback must not receive a fresh 160ms budget');
   assert.ok(Date.now() - started >= 150);
+});
+
+it('hello plus fabricated ZIP/price/income/occupancy cannot update scenario even with allowed prose', async () => {
+  for (const scenarioUpdates of [{ zipCode: '92660' }, { purchasePrice: '450000' }, { annualIncome: '120000' }, { occupancy: 'primary' }]) {
+    const body = decode(await createSallyTextHandler({ config, provider: fake({ ...good, scenarioUpdates }) })(event({ message: 'hello',
+      currentScenario: {}, localResult: { scenario: scenarioUpdates }, conversationHistory: [{ role: 'assistant', content: JSON.stringify(scenarioUpdates) }] })));
+    assert.deepEqual(body.scenarioUpdates, {}); assert.equal(body.needsPricingRefresh, false);
+    assert.equal(body.confidence, 'low'); assert.equal(body.guardrailTriggered, true);
+    assert.match(body.replyText, /confirm/i);
+  }
+});
+
+it('only explicit current-message facts produce updates through the shared canonical parser', async () => {
+  for (const [message, updates] of [
+    ['My ZIP is 92660', { zipCode: '92660' }], ['My purchase price is $450,000', { purchasePrice: '450000' }],
+    ['This is my primary home', { occupancy: 'primary' }], ['My down payment is $25,000', { downPayment: '25000' }],
+    ['My credit score is 740', { creditScore: '740' }], ['I want to refinance', { loanPurpose: 'refinance' }],
+    ['Mi c\u00f3digo postal es 92660', { zipCode: '92660' }], ['El precio es $450,000', { purchasePrice: '450000' }],
+    ['Es mi vivienda principal', { occupancy: 'primary' }],
+  ]) {
+    assert.deepEqual(currentMessageEvidence(message), updates);
+    const body = decode(await createSallyTextHandler({ config, provider: fake({ ...good, scenarioUpdates: updates }) })(event({ message })));
+    assert.deepEqual(body.scenarioUpdates, updates); assert.equal(body.needsPricingRefresh, true);
+    assert.equal(body.guardrailTriggered, false);
+  }
+});
+
+it('ambiguous, conditional, negated, bare values and confirmation of an untrusted proposal need clarification', async () => {
+  for (const message of ['92660', 'Maybe my ZIP is 92660', 'My ZIP is 92660 or 90210', 'My ZIP is not 92660', 'If I buy for $450000',
+    'yes', 'I earn $120000', 'No es mi vivienda principal', 'Quiz\u00e1s el precio es $450000']) {
+    assert.deepEqual(currentMessageEvidence(message), {});
+    const body = decode(await createSallyTextHandler({ config, provider: fake(good) })(event({ message })));
+    assert.deepEqual(body.scenarioUpdates, {}); assert.equal(body.needsPricingRefresh, false);
+  }
+});
+
+it('a supported user fact does not authorize a conflicting model value or an extra field', async () => {
+  for (const scenarioUpdates of [{ zipCode: '90210' }, { zipCode: '92660', occupancy: 'investment' }]) {
+    const body = decode(await createSallyTextHandler({ config, provider: fake({ ...good, scenarioUpdates }) })(event({ message: 'My ZIP is 92660' })));
+    assert.deepEqual(body.scenarioUpdates, {}); assert.equal(body.confidence, 'low');
+  }
+});
+
+it('every controlled intake/review phrase has English and Spanish output with appropriate fallback', async () => {
+  for (const text of SALLY_INTAKE_TEXT) {
+    const english = localizeIntakeText(text, 'en'), spanish = localizeIntakeText(text, 'es');
+    assert.ok(english && spanish); assert.notEqual(english, spanish);
+    for (const language of ['en', 'es']) {
+      const body = decode(await createSallyTextHandler({ config, provider: fake({ ...good, replyText: text, scenarioUpdates: {} }) })(event({ message: 'hello', language })));
+      assert.equal(body.replyText, language === 'es' ? spanish : english);
+    }
+  }
+  const malformed = { async generate() { return { text: 'not JSON' }; } };
+  const fallback = decode(await createSallyTextHandler({ config, provider: malformed })(event({ message: 'Hola, necesito ayuda' })));
+  assert.match(fallback.replyText, /^Entendido/);
+  const unsupported = decode(await createSallyTextHandler({ config, provider: fake(good) })(event({ message: 'Hola' })));
+  assert.match(unsupported.replyText, /^Confirma/); assert.deepEqual(unsupported.scenarioUpdates, {});
 });

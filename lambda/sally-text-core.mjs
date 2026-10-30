@@ -9,24 +9,33 @@ export function redactSensitiveText(text) {
 }
 
 export const SALLY_FALLBACK_TEXT = "Got it. Let's confirm that using your actual numbers before I go further.";
-// Exact server-owned intake phrases, not a natural-language truth classifier.
-// A provider may select these phrases but cannot author borrower-visible claims.
-export const SALLY_INTAKE_TEXT = Object.freeze([
-  SALLY_FALLBACK_TEXT,
-  "Are you looking to buy a home, refinance, or take cash out?",
-  "Will this be your primary home, second home, or an investment property?",
-  "What price range are you looking at?",
-  "How much are you planning to put down?",
-  "About where is your credit score right now?",
-  "Do you want to look at Conventional, FHA, VA, USDA, Jumbo, or DSCR financing?",
-  "What ZIP code are you shopping in?",
-  "What would you like to change about your scenario?",
-  "Please review the quote details with a licensed loan officer.",
-  "\u00bfBuscas comprar una casa, refinanciar o retirar efectivo?",
-  "\u00bfEn qu\u00e9 c\u00f3digo postal buscas una propiedad?",
-]);
+export const SALLY_CONFIRM_TEXT = "Please confirm the scenario detail you want to change.";
+const INTAKE_PAIRS = [
+  [SALLY_FALLBACK_TEXT, "Entendido. Confirmemos tus datos antes de continuar."],
+  [SALLY_CONFIRM_TEXT, "Confirma el dato del escenario que deseas cambiar."],
+  ["Are you looking to buy a home, refinance, or take cash out?", "¿Buscas comprar una casa, refinanciar o retirar efectivo?"],
+  ["Will this be your primary home, second home, or an investment property?", "¿Será tu vivienda principal, segunda vivienda o una propiedad de inversión?"],
+  ["What price range are you looking at?", "¿Qué rango de precio estás considerando?"],
+  ["How much are you planning to put down?", "¿Cuánto planeas dar de pago inicial?"],
+  ["About where is your credit score right now?", "¿Cuál es tu puntaje de crédito aproximado?"],
+  ["Do you want to look at Conventional, FHA, VA, USDA, Jumbo, or DSCR financing?", "¿Quieres explorar financiamiento Conventional, FHA, VA, USDA, Jumbo o DSCR?"],
+  ["What ZIP code are you shopping in?", "¿En qué código postal buscas una propiedad?"],
+  ["What would you like to change about your scenario?", "¿Qué deseas cambiar de tu escenario?"],
+  ["Please review the quote details with a licensed loan officer.", "Revisa los detalles de la cotización con un oficial de préstamos autorizado."],
+];
+export const SALLY_INTAKE_TEXT = Object.freeze(INTAKE_PAIRS.flat());
 export function validateTextOutput(text) {
   return typeof text === 'string' && (text === '' || SALLY_INTAKE_TEXT.includes(text));
+}
+export function localizeIntakeText(text, language) {
+  if (text === '') return '';
+  const pair = INTAKE_PAIRS.find((entry) => entry.includes(text));
+  return pair ? pair[language === 'es' ? 1 : 0] : '';
+}
+export function intakeLanguage(message, preferred) {
+  if (preferred === 'es' || preferred === 'en') return preferred;
+  const normalized = message.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  return /[¿¡]|\b(hola|quiero|codigo|precio|vivienda|credito|prestamo|pago|comprar|refinanciar|gracias|entendido)\b/.test(normalized) ? 'es' : 'en';
 }
 
 const SCENARIO_KEYS = [

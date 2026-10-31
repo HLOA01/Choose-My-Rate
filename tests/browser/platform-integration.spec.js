@@ -168,6 +168,9 @@ test('an unacknowledged application handoff never emits application.started', as
   await fillPurchaseAndSubmit(page);
   await expect(page.getByTestId('results-screen')).toBeVisible();
   await expect.poll(() => captured.linkPosts.length).toBeGreaterThan(0);
+  await expect(page.getByTestId('application-cta')).toHaveText('Continue to Application');
+  await expect(page.getByTestId('hosted-link-disclosure')).toContainText('temporary copy');
+  await expect(page.getByTestId('hosted-link-disclosure')).not.toContainText('LendingPad');
   await page.getByTestId('application-cta').click();
   await expect(page.getByTestId('handoff-message')).toContainText('not configured yet');
   expect(await page.evaluate(() => JSON.parse(sessionStorage.getItem('chooseMyRate.applicationHandoff.v1'))))

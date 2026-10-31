@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
+import { applicationLinkCopy } from "./application/applicationLinkCopy";
 import { askSallyApi, hasSallyApi } from "./sallyApi";
 import { hasPricingApi, quotePricing } from "./pricingApi";
 import { mapCreditScoreToRange, processBorrowerMessageForFunnel } from "./SallyBrain";
@@ -31,6 +32,8 @@ const APPLICATION_URL =
   import.meta.env.VITE_APPLY_URL ||
   import.meta.env.VITE_LOAN_APPLICATION_URL ||
   "";
+
+const APPLICATION_LINK_COPY = applicationLinkCopy(APPLICATION_URL, globalThis.navigator?.language);
 
 const CREDIT_RANGES = {
   "760+": 780,
@@ -1544,7 +1547,8 @@ export default function SimplifiedBorrowerFunnel() {
           <p className="simple-cost-status" data-testid="closing-cost-status">{getPublicClosingCostStatusText(selectedOption)}</p>
           <p className="simple-cost-disclosure" data-testid="cost-disclosure">{COST_DISCLOSURE}</p>
           <p className="simple-rate-note">Lower rates may cost more upfront. Higher rates may provide lender credit.</p>
-          <button type="button" className="simple-primary-button application" data-testid="application-cta" onClick={handleApplication}>Continue to Application</button>
+          <p id="hosted-link-disclosure" className="simple-rate-note" data-testid="hosted-link-disclosure" lang={APPLICATION_LINK_COPY.language}>{APPLICATION_LINK_COPY.notice}</p>
+          <button type="button" className="simple-primary-button application" data-testid="application-cta" aria-describedby="hosted-link-disclosure" lang={APPLICATION_LINK_COPY.language} onClick={handleApplication}>{APPLICATION_LINK_COPY.label}</button>
           {handoffMessage ? <div className="simple-safe-message" data-testid="handoff-message">{handoffMessage}</div> : null}
           <div className="simple-compare-area">
             <button type="button" className="simple-link-button" data-testid="comparison-trigger" onClick={compareFhaConventional}>Compare FHA and Conventional</button>

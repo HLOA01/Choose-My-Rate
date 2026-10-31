@@ -39,7 +39,7 @@ try {
       VITE_PRICING_ENGINE_API_URL: uiOrigin + '/__qa-pricing', VITE_SALLY_API_URL: uiOrigin + '/__qa-sally',
       VITE_SALLY_VOICE_API_URL: '', VITE_HLOA_LEAD_ENGINE_URL: uiOrigin + '/__qa-hloa' };
     const buildResult = spawnSync(process.execPath, [buildScript, sourceDir, bundleDir], {
-      env: { ...childEnvironment(process.env), NODE_ENV: 'production', ...buildConfig }, encoding: 'utf8', windowsHide: true,
+      cwd: sourceDir, env: { ...childEnvironment(process.env), NODE_ENV: 'production', ...buildConfig }, encoding: 'utf8', windowsHide: true,
     });
     if (buildResult.status !== 0) throw new Error('Synthetic build failed: ' + (buildResult.stderr || '').slice(-1500));
     const manifest = { schemaVersion: 1, mode: TEST_MODE, sourceSha: repository.sha, caseId, scratch, sourceDir, bundleDir,

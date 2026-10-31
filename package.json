@@ -16,6 +16,7 @@
     "qa:cross-origin-application": "playwright test --config playwright.cross-origin-application.config.js",
     "qa:cross-origin-application-query": "playwright test --config playwright.cross-origin-application-query.config.js",
     "qa:quote-contract": "node --test tests/contract/*.test.js",
+    "qa:built-preview": "node scripts/qa-built-preview.mjs --synthetic-only",
     "qa:ecosystem-test": "node scripts/qa-ecosystem-test.mjs",
     "preview": "vite preview",
     "qa:sally-provider": "node --test tests/sally/*.test.mjs"

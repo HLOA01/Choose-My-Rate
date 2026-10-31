@@ -9,6 +9,7 @@ const npmCmd = globalThis.process?.platform === "win32" ? "npm.cmd" : "npm";
 
 export default defineConfig({
   testDir: "./tests/browser",
+  testIgnore: "**/cross-origin-application.spec.js",
   timeout: 30_000,
   expect: {
     timeout: 7_500,

@@ -50,4 +50,3 @@ export async function prepare(page, info, mode = 'form') {
   await expect(page.getByTestId('closing-cost-status')).toContainText('Partial estimate');
   return { target, receiver, ui, captured };
 }
-

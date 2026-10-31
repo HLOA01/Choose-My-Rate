@@ -10,6 +10,7 @@ export function inventory(root, excludedRootNames = []) {
   function walk(dir, prefix = '') {
     for (const name of readdirSync(dir).sort()) {
       if (!prefix && excludedRootNames.includes(name)) continue;
+      if (excludedRootNames.includes('node_modules') && name.startsWith('.env')) throw new Error('Environment file in clean export.');
       const file = join(dir, name), stat = lstatSync(file), key = prefix + name;
       if (stat.isSymbolicLink()) throw new Error('Symlink artifact refused.');
       if (stat.isDirectory()) walk(file, key + '/');

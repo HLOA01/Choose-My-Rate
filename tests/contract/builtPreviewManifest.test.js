@@ -31,6 +31,7 @@ test('stale source version/case, changed config and nonlocal target fail closed'
 test('manifest traversal, environment files, lock changes and identical origins are refused', () => {
   const m = fixture(); m.artifacts.push({ ...m.artifacts[0], file: '../escape' }); assert.throws(() => check(m), /Invalid artifact entry/);
   const n = fixture(); writeFileSync(join(n.sourceDir, '.env.production'), 'SYNTHETIC=only'); assert.throws(() => check(n), /Environment file/);
+  const nested = fixture(); mkdirSync(join(nested.sourceDir, 'src')); writeFileSync(join(nested.sourceDir, 'src', '.env.test'), 'SYNTHETIC=only'); assert.throws(() => check(nested), /Environment file/);
   const p = fixture(); writeFileSync(join(p.sourceDir, 'package-lock.json'), 'changed'); assert.throws(() => check(p), /lockfile changed/);
   const q = fixture(); q.receiverOrigin = q.uiOrigin; assert.throws(() => check(q), /origins/);
 });

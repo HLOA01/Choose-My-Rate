@@ -2,7 +2,7 @@ name: CI
 
 on:
   pull_request:
-    branches: [main, fix/application-continuation-2026-10-30, feature/hloa-quote-contract-2026-10-30, test/offline-ecosystem-rehearsal-2026-10-30, feature/sally-text-provider-2026-10-30, feature/guest-input-continuation-2026-10-30, feature/refinance-pi-comparison-2026-10-30]
+    branches: [main, fix/application-continuation-2026-10-30, feature/hloa-quote-contract-2026-10-30, test/offline-ecosystem-rehearsal-2026-10-30, feature/sally-text-provider-2026-10-30, feature/guest-input-continuation-2026-10-30, feature/refinance-pi-comparison-2026-10-30, test/cross-origin-application-2026-10-31]
   push:
     branches: [main, fix/restore-sally-behavior-2026-09-01]
 
@@ -66,4 +66,8 @@ jobs:
 
       - name: QA - cross-origin application navigation (synthetic receiver only)
         run: npm run qa:cross-origin-application
+        timeout-minutes: 5
+
+      - name: QA - configured routing query is preserved (synthetic receiver only)
+        run: npm run qa:cross-origin-application-query
         timeout-minutes: 5

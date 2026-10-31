@@ -7,7 +7,7 @@ import { defineConfig, globalIgnores } from 'eslint/config'
 export default defineConfig([
   globalIgnores(['dist', '**/dist/**', 'test-results/**']),
   {
-    files: ['lambda/openai-sally.mjs', 'lambda/sally-text-*.mjs', 'lambda/sally-scenario-parser.mjs', 'tests/sally/*.mjs'],
+    files: ['scripts/qa-external-application-server.mjs', 'lambda/openai-sally.mjs', 'lambda/sally-text-*.mjs', 'lambda/sally-scenario-parser.mjs', 'tests/sally/*.mjs'],
     extends: [js.configs.recommended],
     languageOptions: { ecmaVersion: 'latest', globals: globals.node },
   },

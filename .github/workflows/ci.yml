@@ -2,7 +2,7 @@ name: CI
 
 on:
   pull_request:
-    branches: [main, fix/application-continuation-2026-10-30, feature/hloa-quote-contract-2026-10-30, test/offline-ecosystem-rehearsal-2026-10-30, feature/sally-text-provider-2026-10-30, feature/guest-input-continuation-2026-10-30, feature/refinance-pi-comparison-2026-10-30, test/cross-origin-application-2026-10-31, feature/hosted-application-link-2026-10-31, test/built-application-preview-2026-10-31]
+    branches: [main, fix/application-continuation-2026-10-30, feature/hloa-quote-contract-2026-10-30, test/offline-ecosystem-rehearsal-2026-10-30, feature/sally-text-provider-2026-10-30, feature/guest-input-continuation-2026-10-30, feature/refinance-pi-comparison-2026-10-30, test/cross-origin-application-2026-10-31, feature/hosted-application-link-2026-10-31, test/built-application-preview-2026-10-31, test/quote-refresh-boundary-2026-11-01]
   push:
     branches: [main, fix/restore-sally-behavior-2026-09-01]
 
@@ -10,7 +10,8 @@ on:
 # workflow. All QA below is self-contained (offline unit checks + Playwright
 # tests that mock every backend call, including the HLOA Lead Engine, via
 # page.route interception) — none of it talks to a real hloa-platform
-# service, a database, or any external endpoint.
+# service or external endpoint. The separate legacy metadata job below uses
+# only its own throwaway PostgreSQL database and synthetic workbook downloads.
 jobs:
   quality:
     name: Lint, build, and QA
@@ -29,6 +30,18 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Legacy pricing service - locked dependencies, build and offline tests
+        working-directory: pricing-engine
+        env:
+          NODE_ENV: test
+          DATABASE_URL: postgres://synthetic:unused@127.0.0.1:1/never-used
+          ADMIN_API_KEY: synthetic-test-only
+          ENABLE_SCHEDULER: 'false'
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm run build
+          npm test
 
       - name: Lint
         run: npm run lint
@@ -83,3 +96,40 @@ jobs:
         with:
           name: built-preview-readiness
           path: test-results/built-preview/
+
+  legacy-postgres:
+    name: Legacy pricing metadata (real PostgreSQL 16)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    defaults:
+      run:
+        working-directory: pricing-engine
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgres://synthetic:unused@127.0.0.1:1/never-used
+      ADMIN_API_KEY: synthetic-test-only
+      ENABLE_SCHEDULER: 'false'
+      LEGACY_PRICING_TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: pricing-engine/package-lock.json
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm run build
+      - run: npm test

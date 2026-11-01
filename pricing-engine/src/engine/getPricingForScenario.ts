@@ -1,3 +1,4 @@
+import { hasServablePrmgProvenance } from "../connectors/prmg/transformProvenance.js";
 import { pool } from "../db/repositories/db.js";
 import { assembleBorrowerQuote } from "../closingCosts/borrowerQuoteAssembler.js";
 import {
@@ -73,8 +74,25 @@ export async function getPricingForScenarioWithDependencies(
     };
   }
 
+  const metadataUnavailable = (): PricingQuoteResponse => ({
+    status: "no_live_pricing",
+    banner: control.pricingStatus === "warning" ? control.bannerMessage : null,
+    message: scenario.language === "es"
+      ? "Los metadatos de la fuente no están verificados. Solicite precios actuales."
+      : "Source metadata is unverified. Please request current pricing.",
+    options: [], leadCaptureEnabled: true, callbackEnabled: true,
+  });
+  const servable = (version: PricingVersion | null): version is PricingVersion => !!version
+    && version.lenderCode === "PRMG" && version.status === "live"
+    && hasServablePrmgProvenance(version.validationSummary);
+  if (!servable(liveVersion)) return metadataUnavailable();
+
   const completeScenario = scenario as PricingScenario;
   const rows = await dependencies.getRowsForVersion(liveVersion.id);
+  // Row loading is asynchronous. Do not serve an earlier observation after its
+  // publication was replaced, archived or lost its metadata marker during that I/O.
+  const currentVersion = await dependencies.getLatestLiveVersion();
+  if (!servable(currentVersion) || currentVersion.id !== liveVersion.id) return metadataUnavailable();
   const eligible = filterEligiblePrograms(rows, completeScenario);
   const rateStackRows = selectBorrowerRateStackRows(eligible, completeScenario);
 

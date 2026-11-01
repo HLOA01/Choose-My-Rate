@@ -39,7 +39,7 @@ function version(overrides: Partial<PricingVersion> = {}): PricingVersion {
     effectiveDate: "2026-08-31",
     status: "live",
     publishedAt: now,
-    validationSummary: {},
+    validationSummary: { transformVersion: "prmg-normalizer-v3" },
     createdAt: now,
     ...overrides,
   };

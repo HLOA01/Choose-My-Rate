@@ -36,7 +36,10 @@ function isRateHeader(value: unknown) {
 
 function numeric(value: unknown) {
   if (typeof value === "number") return Number.isFinite(value) ? value : null;
-  const parsed = Number(String(value ?? "").replace(/,/g, ""));
+  if (value === null || value === undefined) return null;
+  const cleaned = String(value).replace(/,/g, "").trim();
+  if (cleaned === "") return null;
+  const parsed = Number(cleaned);
   return Number.isFinite(parsed) ? parsed : null;
 }
 
@@ -72,11 +75,13 @@ function emitMatrixRows(sheetName: string, matrix: unknown[][]) {
 
       const lockColumns: Array<{ columnIndex: number; lockDays: number }> = [];
       for (let offset = 1; offset <= 3; offset++) {
-        const lockDays = numeric(row[rateColumnIndex + offset]);
-        if (lockDays && lockDays > 0 && lockDays <= 180) {
+        const rawLock = row[rateColumnIndex + offset];
+        if (typeof rawLock !== 'number' && (typeof rawLock !== 'string' || !/^\d+$/.test(rawLock.trim()))) continue;
+        const lockDays = numeric(rawLock);
+        if (lockDays && Number.isSafeInteger(lockDays) && lockDays > 0 && lockDays <= 180) {
           lockColumns.push({
             columnIndex: rateColumnIndex + offset,
-            lockDays: Math.round(lockDays),
+            lockDays,
           });
         }
       }

@@ -17,13 +17,14 @@ import {
   updateVersionStatus,
 } from "../db/repositories/pricingVersionRepository.js";
 import { fetchPrmgRateSheet } from "../connectors/prmg/fetchPrmgRateSheet.js";
-import { normalizePrmgData } from "../connectors/prmg/normalizePrmgData.js";
+import { normalizePrmgData, type PrmgMetadataRejection } from "../connectors/prmg/normalizePrmgData.js";
 import { parsePrmgWorkbook } from "../connectors/prmg/parsePrmgWorkbook.js";
 import { validatePrmgData } from "../connectors/prmg/validatePrmgData.js";
 import { logger } from "../utils/logger.js";
 import { createHash } from "node:crypto";
 
-const PRMG_TRANSFORM_VERSION = "prmg-normalizer-v2";
+import { PRMG_TRANSFORM_VERSION } from "../connectors/prmg/transformProvenance.js";
+export { PRMG_TRANSFORM_VERSION };
 
 export interface RefreshResult {
   status: "published" | "skipped" | "failed" | "locked";
@@ -76,7 +77,8 @@ export async function refreshPrmgRates(): Promise<RefreshResult> {
     }
 
     const parsed = parsePrmgWorkbook(fetched.buffer);
-    const normalizedRows = normalizePrmgData(parsed.rows);
+    const metadataRejections: PrmgMetadataRejection[] = [];
+    const normalizedRows = normalizePrmgData(parsed.rows, metadataRejections);
     const liveVersion = await getLatestLiveVersion(pool, "PRMG");
     const priorLiveRowCount = liveVersion ? await countRowsForVersion(pool, liveVersion.id) : null;
 
@@ -101,6 +103,12 @@ export async function refreshPrmgRates(): Promise<RefreshResult> {
       effectiveDate: null,
     });
 
+    if (metadataRejections.length) {
+      validationSummary.valid = false;
+      validationSummary.errors.push(...metadataRejections.map(({ sheetName, rowNumber, reason }) =>
+        `Required PRMG metadata rejected at ${sheetName} row ${rowNumber}: ${reason}.`));
+    }
+
     if (!validationSummary.valid) {
       await updateVersionStatus(
         pool,
@@ -112,13 +120,13 @@ export async function refreshPrmgRates(): Promise<RefreshResult> {
       await completeRefreshLog(pool, {
         id: logId,
         status: "failed",
-        message: "PRMG validation failed. Prior live pricing remains active.",
+        message: "PRMG validation failed. Prior snapshot preserved; serving guards still apply.",
         pricingVersionId: stagingVersion.id,
         errorDetails: { errors: validationSummary.errors, warnings: validationSummary.warnings },
       });
       return {
         status: "failed",
-        message: "PRMG validation failed. Prior live pricing remains active.",
+        message: "PRMG validation failed. Prior snapshot preserved; serving guards still apply.",
         pricingVersionId: stagingVersion.id,
       };
     }
@@ -126,7 +134,7 @@ export async function refreshPrmgRates(): Promise<RefreshResult> {
     const live = await publishStagingVersion({
       versionId: stagingVersion.id,
       lenderCode: "PRMG",
-      validationSummary,
+      validationSummary: { ...validationSummary, transformVersion: PRMG_TRANSFORM_VERSION },
       effectiveDate: validationSummary.effectiveDate,
     });
 
@@ -155,14 +163,14 @@ export async function refreshPrmgRates(): Promise<RefreshResult> {
       await completeRefreshLog(pool, {
         id: logId,
         status: "failed",
-        message: "PRMG refresh failed. Prior live pricing remains active.",
+        message: "PRMG refresh failed. Prior snapshot preserved; serving guards still apply.",
         errorDetails: { message },
       });
     }
 
     return {
       status: "failed",
-      message: "PRMG refresh failed. Prior live pricing remains active.",
+      message: "PRMG refresh failed. Prior snapshot preserved; serving guards still apply.",
     };
   } finally {
     try {

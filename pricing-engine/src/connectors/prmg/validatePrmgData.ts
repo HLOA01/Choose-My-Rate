@@ -27,8 +27,9 @@ export function validatePrmgData(input: {
   for (const row of input.rows) {
     if (!row.productName) errors.push("Critical blank product_name detected.");
     if (!Number.isFinite(row.rate)) errors.push(`Invalid rate for ${row.productCode}.`);
+    if (!Number.isSafeInteger(row.lockDays) || row.lockDays <= 0) errors.push(`Invalid lock for ${row.productCode}.`);
     if (!Number.isFinite(row.price)) errors.push(`Invalid price for ${row.productCode}.`);
-    if (!Number.isFinite(row.termMonths) || row.termMonths <= 0) {
+    if (!Number.isSafeInteger(row.termMonths) || row.termMonths <= 0) {
       errors.push(`Invalid term for ${row.productCode}.`);
     }
   }

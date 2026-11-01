@@ -26,6 +26,7 @@ export interface NormalizedPricingRow {
 }
 
 export interface ValidationSummary {
+  transformVersion?: string;
   valid: boolean;
   errors: string[];
   warnings: string[];

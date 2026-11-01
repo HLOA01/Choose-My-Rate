@@ -14,7 +14,8 @@ on:
 jobs:
   quality:
     name: Lint, build, and QA
-    runs-on: ubuntu-latest
+    # Pin the OS supported by locked Playwright 1.60; latest now resolves to unsupported 26.04.
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - name: Checkout

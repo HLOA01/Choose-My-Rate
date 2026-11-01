@@ -2,7 +2,7 @@ name: CI
 
 on:
   pull_request:
-    branches: [main, fix/application-continuation-2026-10-30, feature/hloa-quote-contract-2026-10-30, test/offline-ecosystem-rehearsal-2026-10-30, feature/sally-text-provider-2026-10-30, feature/guest-input-continuation-2026-10-30, feature/refinance-pi-comparison-2026-10-30, test/cross-origin-application-2026-10-31, feature/hosted-application-link-2026-10-31]
+    branches: [main, fix/application-continuation-2026-10-30, feature/hloa-quote-contract-2026-10-30, test/offline-ecosystem-rehearsal-2026-10-30, feature/sally-text-provider-2026-10-30, feature/guest-input-continuation-2026-10-30, feature/refinance-pi-comparison-2026-10-30, test/cross-origin-application-2026-10-31, feature/hosted-application-link-2026-10-31, test/built-application-preview-2026-10-31]
   push:
     branches: [main, fix/restore-sally-behavior-2026-09-01]
 
@@ -14,7 +14,8 @@ on:
 jobs:
   quality:
     name: Lint, build, and QA
-    runs-on: ubuntu-latest
+    # Pin the OS supported by locked Playwright 1.60; latest now resolves to unsupported 26.04.
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - name: Checkout

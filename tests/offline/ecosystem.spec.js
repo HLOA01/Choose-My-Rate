@@ -58,7 +58,7 @@ test.afterAll(() => {
     sallyEnabled: false, voiceEnabled: false, leadEngineEnabled: false,
     lenderAccess: 'UNVERIFIED', productionReadiness: 'UNVERIFIED',
     completedAt: new Date().toISOString(), cases,
-    passed: cases.length === 8 && cases.every((entry) => entry.status === 'passed' && entry.teardown?.listenersRefusedConnections
+    passed: cases.length === 9 && cases.every((entry) => entry.status === 'passed' && entry.teardown?.listenersRefusedConnections
       && entry.browserBlockedEgress.length === 0 && entry.audit?.blockedEgress.length === (entry.egressRejectionProof ? 1 : 0)),
   }, null, 2));
 });
@@ -179,3 +179,23 @@ for (const name of ['paused', 'archived', 'no_authority', 'revoked_approval']) {
     expect(await page.evaluate(() => sessionStorage.getItem('chooseMyRate.applicationHandoff.v1'))).toBeNull();
   });
 }
+
+test('TEST actual policy refresh boundary expires an idle quote and clears the prepared handoff', async ({ page }) => {
+  await fill(page);
+  await setCase('short_validity');
+  const body = await quote(page);
+  expect(body.status).toBe('live');
+  expect(typeof body.quoteExpiresAt).toBe('string');
+  expect(Date.parse(body.quoteExpiresAt)).toBeGreaterThan(Date.now());
+  await expect(page.getByTestId('results-screen')).toBeVisible();
+  await expect(page.getByTestId('closing-cost-status')).toContainText('Partial estimate');
+  const handoff = await prepare(page);
+  expect(handoff.quoteExpiresAt).toBe(body.quoteExpiresAt);
+  await expect(page.getByTestId('empty-results')).toBeVisible({ timeout: 15000 });
+  await expect(page.getByTestId('empty-results')).toContainText('expired');
+  expect(await page.evaluate(() => sessionStorage.getItem('chooseMyRate.applicationHandoff.v1'))).toBeNull();
+  await expect(page.getByTestId('application-cta')).toHaveCount(0);
+  expect(evidence.responses).toHaveLength(1); // idle invalidation never fabricates a new price
+  await page.reload();
+  await expect(page.getByTestId('application-cta')).toHaveCount(0);
+});

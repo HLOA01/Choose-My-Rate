@@ -1,3 +1,4 @@
+import { applicationDestination } from "./application/applicationDestination";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
 import { applicationLinkCopy } from "./application/applicationLinkCopy";
@@ -27,13 +28,15 @@ const SR_ONLY_STYLE = {
   border: 0,
 };
 
-const APPLICATION_URL =
+const CONFIGURED_APPLICATION_URL =
   import.meta.env.VITE_APPLICATION_URL ||
   import.meta.env.VITE_APPLY_URL ||
   import.meta.env.VITE_LOAN_APPLICATION_URL ||
   "";
+const APPLICATION_URL = applicationDestination(CONFIGURED_APPLICATION_URL, globalThis.location?.origin);
 
-const APPLICATION_LINK_COPY = applicationLinkCopy(APPLICATION_URL, globalThis.navigator?.language);
+const APPLICATION_LINK_BLOCKED = Boolean(CONFIGURED_APPLICATION_URL && !APPLICATION_URL);
+const APPLICATION_LINK_COPY = applicationLinkCopy(APPLICATION_URL, globalThis.navigator?.language, { blocked: APPLICATION_LINK_BLOCKED });
 
 const CREDIT_RANGES = {
   "760+": 780,
@@ -895,6 +898,11 @@ export default function SimplifiedBorrowerFunnel() {
       setPricingMessage("This quote is no longer available. Request current pricing before continuing.");
       return;
     }
+    if (APPLICATION_LINK_BLOCKED) {
+      setHandoffMessage(APPLICATION_LINK_COPY.blockedMessage);
+      return;
+    }
+
     pendingIntentRef.current ||= window.crypto.randomUUID();
     const handoff = {
       scenario,

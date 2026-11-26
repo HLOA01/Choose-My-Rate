@@ -1,13 +1,15 @@
+import { applicationDestination } from "./application/applicationDestination";
 import React, { useMemo, useRef, useState } from "react";
 import "./App.css";
 import { askSallyApi, hasSallyApi } from "./sallyApi";
 import { hasPricingApi, quotePricing } from "./pricingApi";
 
-const APPLICATION_URL =
+const CONFIGURED_APPLICATION_URL =
   import.meta.env.VITE_APPLICATION_URL ||
   import.meta.env.VITE_APPLY_URL ||
   import.meta.env.VITE_LOAN_APPLICATION_URL ||
   "";
+const APPLICATION_URL = applicationDestination(CONFIGURED_APPLICATION_URL, globalThis.location?.origin);
 
 const RESTORE_KEY = "chooseMyRate.simpleScenario.v1";
 
@@ -360,6 +362,11 @@ export default function SimplifiedBorrowerApp() {
       setHandoffMessage("Choose a returned rate option before continuing.");
       return;
     }
+    if (CONFIGURED_APPLICATION_URL && !APPLICATION_URL) {
+      setHandoffMessage("The application link is unavailable. Your selected rate stays here.");
+      return;
+    }
+
 
     if (!APPLICATION_URL) {
       setHandoffMessage("Application handoff is the next connection step. No application URL is configured yet.");

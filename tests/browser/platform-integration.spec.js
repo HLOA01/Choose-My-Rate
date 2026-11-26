@@ -179,6 +179,28 @@ test('an unacknowledged application handoff never emits application.started', as
   expect(captured.emits.some((event) => event.eventType === 'application.started')).toBe(false);
 });
 
+test('invalid configured application path fails closed before saving a handoff', async ({ page }, testInfo) => {
+  test.skip(!testInfo.config.metadata.invalidApplicationUrl, 'Exercised by the invalid application rehearsal.');
+  const captured = await installBoundary(page);
+  let receiverRequests = 0;
+  await page.route('https://prod.lendingpad.com/**', async (route) => {
+    receiverRequests += 1;
+    await route.abort();
+  });
+  await fillPurchaseAndSubmit(page);
+  await expect(page.getByTestId('results-screen')).toBeVisible();
+  const startingUrl = page.url();
+  await expect(page.getByTestId('hosted-link-disclosure')).toContainText('Online applications are unavailable');
+  await expect(page.getByTestId('hosted-link-disclosure')).not.toContainText('temporary copy');
+  await page.getByTestId('application-cta').click();
+  await expect(page.getByTestId('handoff-message')).toContainText('Contact Home Lenders of America for help');
+  await expect(page.getByTestId('results-screen')).toBeVisible();
+  expect(page.url()).toBe(startingUrl);
+  expect(receiverRequests).toBe(0);
+  expect(await page.evaluate(() => sessionStorage.getItem('chooseMyRate.applicationHandoff.v1'))).toBeNull();
+  expect(captured.emits.some((event) => event.eventType === 'application.started')).toBe(false);
+});
+
 test('configured application redirect preserves the handoff without claiming receiver acceptance', async ({ page }, testInfo) => {
   const applicationUrl = testInfo.config.metadata.applicationUrl;
   test.skip(!applicationUrl, 'Exercised by qa:application with an explicit local receiver URL.');

@@ -28,3 +28,13 @@ test('unknown or malformed locale uses English and copy does not mutate its inpu
   for (const locale of [null, undefined, {}, 'en-US', 'not-es']) assert.equal(applicationLinkCopy(url, locale).language, 'en');
   assert.equal(url, 'https://prod.lendingpad.com' + path + '?route=synthetic#part');
 });
+
+test('invalid configuration has a bilingual contact fallback without a storage or receipt claim', () => {
+  const spanish = applicationLinkCopy(null, 'es', { blocked: true });
+  const english = applicationLinkCopy(null, 'en', { blocked: true });
+  assert.match(spanish.notice, /no está disponible/);
+  assert.match(spanish.blockedMessage, /Comunícate con Home Lenders of America/);
+  assert.match(english.notice, /unavailable/);
+  assert.match(english.blockedMessage, /Contact Home Lenders of America/);
+  assert.doesNotMatch(english.notice, /copy|received/);
+});

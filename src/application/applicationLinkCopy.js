@@ -1,5 +1,7 @@
-// Presentation only: no navigation policy, destination default, identity or receiver acknowledgement.
-export function applicationLinkCopy(destination, locale = 'en') {
+import { isLendingPadConsumerUrl } from './applicationDestination.js';
+
+// Presentation only: receives a destination validated by the active funnel, or no destination.
+export function applicationLinkCopy(destination, locale = 'en', { blocked = false } = {}) {
   const language = typeof locale === 'string' && /^es(?:-|$)/i.test(locale) ? 'es' : 'en';
   let lendingPad = false, webLink = false;
   try {
@@ -7,10 +9,18 @@ export function applicationLinkCopy(destination, locale = 'en') {
     webLink = ['https:', 'http:'].includes(url.protocol) && !url.username && !url.password;
     // Recognize only LendingPad's exact HTTPS host and observed consumer-route form.
     // This identifies the provider for wording, NOT the company, LO or future route availability.
-    lendingPad = webLink && url.protocol === 'https:' && url.hostname === 'prod.lendingpad.com' && !url.port
-      && !url.search && ['', '#/'].includes(url.hash)
-      && /^\/[a-z0-9-]+\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/pos\/?$/i.test(url.pathname);
-  } catch { /* Unknown configuration retains generic wording; handler behavior is unchanged. */ }
+    lendingPad = webLink && isLendingPadConsumerUrl(url);
+  } catch { /* Absent or unknown configuration retains generic wording. */ }
+  if (blocked) return {
+    language, provider: 'generic',
+    label: language === 'es' ? 'Continuar a la solicitud' : 'Continue to Application',
+    notice: language === 'es'
+      ? 'La solicitud en línea no está disponible. Todavía puedes revisar tu cotización.'
+      : 'Online applications are unavailable. You can still review your selected quote.',
+    blockedMessage: language === 'es'
+      ? 'El enlace de solicitud no está disponible. Tu tasa seleccionada sigue aquí. Comunícate con Home Lenders of America para recibir ayuda.'
+      : 'The application link is unavailable. Your selected rate stays here. Contact Home Lenders of America for help.',
+  };
   const localCopy = language === 'es'
     ? 'Al continuar, se guarda temporalmente en esta pestaña una copia de tus datos y de la cotización seleccionada.'
     : 'Continuing saves a temporary copy of your entries and selected quote in this browser tab.';
